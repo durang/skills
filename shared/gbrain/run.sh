@@ -125,6 +125,8 @@ run_check() {
   echo "> 👋 **Hola Sergio** — panel de control de **GBrain** + **OpenClaw**, en 15 capas."
   echo "> Cada capa explica qué mide, por qué importa, y qué hacer si está ⚠️ o ❌."
   echo ""
+  echo "> 📖 **Manual completo:** \`/gbrain manual\` — todos los comandos + cuándo usarlos"
+  echo ""
   echo "## 🎛️ Shortcuts disponibles (todos los subcomandos)"
   echo ""
   echo "| Comando | Qué hace | Cuándo usarlo |"
@@ -138,6 +140,8 @@ run_check() {
   echo "| \`/gbrain bootstrap\` | Verifica que el host tenga TODO lo del MANIFEST.json instalado correctamente | Después de \`git clone\` en EC2 nueva, o periódicamente |"
   echo "| \`/gbrain principles\` | Lee las reglas operacionales (canónico siempre gana, etc.) | Antes de tocar cualquier skill |"
   echo "| \`/gbrain manifest\` | Lee el MANIFEST.json (canonical inventory de tu stack) | Cuando quieras saber qué versión esperada tienes |"
+  echo "| \`/gbrain manual\` | Lee el manual completo (este archivo + casos de uso) | Cuando dudes qué comando correr |"
+  echo "| \`/gbrain custom-instructions\` (o \`/gbrain ci\`) | Genera el bloque de Custom Instructions actualizado para claude.ai | Cuando \`Layer 11b\` muestre 🔴 drift, o monthly como sanity check |"
   echo ""
   echo "**Cómo invocar:**"
   echo "- Aquí (Claude Code terminal): escribe \`/gbrain\` o \`/gbrain <subcomando>\`"
@@ -166,6 +170,23 @@ except: print(0)" 2>/dev/null)
   [ "$KEYS" -eq 0 ] 2>/dev/null && ALERTS+=("🔴 **openclaw-node sin API keys** en su environment — fix: \`EnvironmentFile=\` en el systemd unit")
   [ "$FB_COUNT" -eq 0 ] 2>/dev/null && ALERTS+=("🟠 **Modelo sin fallbacks** — si MiniMax timeouts, la sesión muere. Configura \`agents.defaults.model.fallbacks\`")
   [ "$QUEUE_DEPTH" -gt 100 ] 2>/dev/null && ALERTS+=("🟠 **Queue depth=$QUEUE_DEPTH** en autopilot-cycle — workers atorados")
+
+  # Custom Instructions drift detection
+  CI_SPEC_VER=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
+  CI_APPLIED_VER=$(cat "$HOME/.gbrain/custom-instructions-applied.flag" 2>/dev/null | tr -d ' \n')
+  [ -z "$CI_APPLIED_VER" ] && CI_APPLIED_VER="0"
+  if [ -n "$CI_SPEC_VER" ] && [ "$CI_APPLIED_VER" != "$CI_SPEC_VER" ]; then
+    ALERTS+=("🔴 **Custom Instructions desactualizadas** — claude.ai tiene v$CI_APPLIED_VER, spec actual es v$CI_SPEC_VER. Corre \`/gbrain custom-instructions\` para el bloque nuevo.")
+  fi
+
+  # Skills monorepo drift detection
+  if [ -d "$HOME/skills/.git" ]; then
+    SKILLS_REMOTE=$(cd "$HOME/skills" && git ls-remote origin master 2>/dev/null | awk '{print $1}' | head -c 7)
+    SKILLS_LOCAL=$(cd "$HOME/skills" && git rev-parse master 2>/dev/null | head -c 7)
+    if [ -n "$SKILLS_REMOTE" ] && [ -n "$SKILLS_LOCAL" ] && [ "$SKILLS_LOCAL" != "$SKILLS_REMOTE" ]; then
+      ALERTS+=("🟠 **Skills monorepo atrasado** — local \`$SKILLS_LOCAL\` vs remote \`$SKILLS_REMOTE\`. Corre \`cd ~/skills && git pull && ./install.sh\`")
+    fi
+  fi
   if [ "${#ALERTS[@]}" -gt 0 ]; then
     echo "## 🚨 Alertas críticas"
     echo ""
@@ -1190,6 +1211,7 @@ case "$SUBCMD" in
   bootstrap) bash "$SKILL_DIR/bootstrap.sh" ;;
   principles) cat "$SKILL_DIR/PRINCIPLES.md" ;;
   manifest) cat "$SKILL_DIR/MANIFEST.json" ;;
+  manual) cat "$SKILL_DIR/MANUAL.md" ;;
   custom-instructions|ci)
     DB_URL=$(python3 -c "import json; print(json.load(open('$HOME/.gbrain/config.json'))['database_url'])" 2>/dev/null)
     SKILL_VERSION=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
