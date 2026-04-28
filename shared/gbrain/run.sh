@@ -108,6 +108,38 @@ except Exception as e:
 }
 
 run_check() {
+  # ─── Auto-sync skills monorepo (silencioso, rate-limited 30min) ───
+  # Cuando corres /gbrain, primero sincroniza skills si lleva >30 min sin sync.
+  # Esto significa: NUNCA tienes que correr `git pull && install.sh` manual.
+  # /gbrain es la única puerta — sincroniza por ti.
+  if [ -d "$HOME/skills/.git" ]; then
+    LAST_SYNC_FILE="$HOME/.skills-last-sync"
+    NOW_TS=$(date +%s)
+    LAST_TS=0
+    if [ -f "$LAST_SYNC_FILE" ]; then
+      # Linux uses stat -c %Y; macOS stat -f %m
+      LAST_TS=$(stat -c %Y "$LAST_SYNC_FILE" 2>/dev/null || stat -f %m "$LAST_SYNC_FILE" 2>/dev/null || echo 0)
+    fi
+    AGE=$((NOW_TS - LAST_TS))
+    if [ "$AGE" -gt 1800 ] || [ "$LAST_TS" -eq 0 ]; then
+      echo "🔄 Sincronizando skills monorepo..."
+      SYNC_OUTPUT=$(cd "$HOME/skills" && git pull 2>&1)
+      if echo "$SYNC_OUTPUT" | grep -q "Already up to date\|Already up-to-date"; then
+        echo "✓ Skills al día (sin cambios upstream)"
+      else
+        CHANGED=$(echo "$SYNC_OUTPUT" | grep -E "^\s+\S+\s+\|" | wc -l)
+        echo "✓ Skills sincronizados — $CHANGED archivo(s) actualizado(s)"
+        (cd "$HOME/skills" && bash install.sh >/dev/null 2>&1) && echo "✓ install.sh aplicado"
+      fi
+      date > "$LAST_SYNC_FILE"
+      echo ""
+    else
+      AGE_MIN=$((AGE / 60))
+      echo "✓ Skills al día (último sync hace ${AGE_MIN} min)"
+      echo ""
+    fi
+  fi
+
   echo '```'
   echo '   ██████╗ ██████╗ ██████╗  █████╗ ██╗███╗   ██╗'
   echo '  ██╔════╝ ██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║'
