@@ -1,0 +1,19 @@
+# Legacy folders that predate this monorepo — NOT migrated yet.
+# If you want to bring them into the system, move to claude/, openclaw/, or shared/
+# with a commit. Until then, they stay local and out of the public repo.
+landing-gen/
+lead-scraper/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Backups
+*.bak
+*.bak-*
+backups/

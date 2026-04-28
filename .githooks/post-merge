@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# post-merge — auto-run install.sh after git pull, show summary of changes.
+
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" || exit 0
+
+# What SKILL.md files changed in the merge?
+CHANGED=$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD 2>/dev/null | grep 'SKILL\.md$' || true)
+
+if [ -n "$CHANGED" ]; then
+  echo ""
+  echo "[skills post-merge] $(echo "$CHANGED" | wc -l) skill(s) changed:"
+  echo "$CHANGED" | sed 's/^/  /'
+  echo ""
+fi
+
+if [ -x "$REPO_ROOT/install.sh" ]; then
+  echo "[skills post-merge] Running install.sh..."
+  "$REPO_ROOT/install.sh"
+fi

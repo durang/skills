@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# pre-commit — auto-classify new skills.
+# Adds `distribute-to: [...]` to frontmatter based on subfolder convention,
+# name heuristic, or interactive prompt (only when ambiguous).
+
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+NEW_SKILLS=()
+
+# Find newly added SKILL.md files in this commit
+while IFS= read -r f; do
+  [ -f "$REPO_ROOT/$f" ] || continue
+  case "$f" in
+    *SKILL.md|*skill.md) NEW_SKILLS+=("$f") ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=A 2>/dev/null)
+
+[ ${#NEW_SKILLS[@]} -eq 0 ] && exit 0
+
+infer_from_path() {
+  case "$1" in
+    claude/*)   echo "[claude]" ;;
+    openclaw/*) echo "[openclaw]" ;;
+    shared/*)   echo "[claude, openclaw]" ;;
+    *)          echo "" ;;
+  esac
+}
+
+infer_from_name() {
+  local n="$1"
+  case "$n" in
+    gsap-*|mcp-*|claude-*|*-track|*-monitor|*-security) echo "[claude]" ;;
+    brain-*|signal-*|*-detector|*-ingest|*-ingestion)   echo "[openclaw]" ;;
+    *)                                                   echo "" ;;
+  esac
+}
+
+ask_target() {
+  local skill_path="$1"
+  echo "" >&2
+  echo "[skills hook] New skill: $skill_path" >&2
+  echo "  Subfolder convention didn't match and name doesn't trigger heuristic." >&2
+  echo "  Target?" >&2
+  echo "    [c] claude only" >&2
+  echo "    [o] openclaw only" >&2
+  echo "    [b] both" >&2
+  echo "    [s] skip (will run install.sh --interactive later)" >&2
+  read -r -p "  > " ans </dev/tty
+  case "$ans" in
+    c|C) echo "[claude]" ;;
+    o|O) echo "[openclaw]" ;;
+    b|B) echo "[claude, openclaw]" ;;
+    s|S) echo "" ;;
+    *)   echo "" ;;
+  esac
+}
+
+skill_has_distribute() {
+  awk '/^---$/{c++; next} c==1{print}' "$1" | grep -qE '^distribute-to:'
+}
+
+inject_distribute() {
+  local file="$1" tag="$2"
+  # Find end of frontmatter and insert before it
+  awk -v tag="distribute-to: $tag" '
+    BEGIN{in_fm=0; injected=0}
+    /^---$/{
+      if(in_fm==0){in_fm=1; print; next}
+      if(in_fm==1 && injected==0){print tag; injected=1}
+    }
+    {print}
+  ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+}
+
+CHANGED=0
+
+for skill in "${NEW_SKILLS[@]}"; do
+  full_path="$REPO_ROOT/$skill"
+
+  # Already tagged? skip
+  if skill_has_distribute "$full_path"; then
+    continue
+  fi
+
+  # Try subfolder
+  tag=$(infer_from_path "$skill")
+
+  # Try name heuristic if still nothing
+  if [ -z "$tag" ]; then
+    name=$(basename "$(dirname "$skill")")
+    tag=$(infer_from_name "$name")
+  fi
+
+  # Still nothing? ask
+  if [ -z "$tag" ]; then
+    tag=$(ask_target "$skill")
+  fi
+
+  if [ -z "$tag" ]; then
+    echo "[skills hook] ⚠ skipped (no tag): $skill — run install.sh --interactive later" >&2
+    continue
+  fi
+
+  inject_distribute "$full_path" "$tag"
+  git add "$full_path"
+  CHANGED=$((CHANGED+1))
+  echo "[skills hook] ✓ tagged $skill → $tag" >&2
+done
+
+[ "$CHANGED" -gt 0 ] && echo "[skills hook] $CHANGED skill(s) auto-tagged" >&2
+
+exit 0
