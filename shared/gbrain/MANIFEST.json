@@ -142,6 +142,12 @@
         "title": "claude-code-capture recipe",
         "blocks": "Nothing — capability exists locally as Stop hook",
         "auto_resolve_when": "Merged → recipe appears in upstream `recipes/`"
+      },
+      {
+        "url": "https://github.com/garrytan/gbrain/pull/509",
+        "title": "compounding-engine recipe — 7th-phase LLM semantic improvement",
+        "blocks": "Nothing — capability exists locally at ~/.openclaw/skills/gbrain/compound/",
+        "auto_resolve_when": "Merged → recipe appears in upstream `recipes/compounding-engine.md`"
       }
     ]
   },
