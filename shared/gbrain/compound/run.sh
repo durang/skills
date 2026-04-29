@@ -23,6 +23,17 @@ mkdir -p "$JOURNAL_DIR" "$BACKUP_DIR" "$(dirname "$LOG")"
 DB_URL=$(python3 -c "import json; print(json.load(open('$HOME/.gbrain/config.json'))['database_url'])" 2>/dev/null)
 [ -z "$DB_URL" ] && { echo "❌ DATABASE_URL not configured"; exit 1; }
 
+# Make user-installed binaries available under cron (cron PATH = /usr/bin:/bin)
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+# Load API keys from openclaw env (cron doesn't inherit user env)
+if [ -z "${DEEPSEEK_API_KEY:-}" ] && [ -f "$HOME/.openclaw/.env" ]; then
+  export DEEPSEEK_API_KEY=$(grep -oP 'DEEPSEEK_API_KEY=\K\S+' "$HOME/.openclaw/.env" 2>/dev/null || true)
+fi
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -f "$HOME/.openclaw/.env" ]; then
+  export ANTHROPIC_API_KEY=$(grep -oP 'ANTHROPIC_API_KEY=\K\S+' "$HOME/.openclaw/.env" 2>/dev/null || true)
+fi
+
 # Telegram from openclaw config
 BOT_TOKEN=$(python3 -c "import json; print(json.load(open('$HOME/.openclaw/openclaw.json'))['channels']['telegram']['botToken'])" 2>/dev/null)
 CHAT_ID="1439730479"
@@ -105,8 +116,8 @@ COPY (SELECT * FROM links WHERE created_at > NOW() - INTERVAL '7 days') TO STDOU
 " > "$CYCLE_BACKUP/links-recent.csv" 2>/dev/null
 log "  ✓ backup complete"
 
-# ─── Phase 3: Analyze (call claude -p with prompt) ────────────────
-log "[phase 3] Analyzing brain state via claude -p"
+# ─── Phase 3: Analyze (DeepSeek API if key present, else claude -p) ────
+log "[phase 3] Analyzing brain state"
 ANALYZE_PROMPT=$(cat "$COMPOUND_DIR/prompts/analyze.md")
 LEARNING_JSON=$(cat "$LEARNING")
 PROPOSALS_FILE="$CYCLE_BACKUP/proposals.json"
@@ -133,11 +144,46 @@ $CONTEXT
 
 Now produce JSON proposals as specified."
 
-# Run claude in non-interactive mode
-echo "$FULL_PROMPT" | timeout 120 claude --print --no-chrome 2>/dev/null > "$PROPOSALS_FILE.raw" || {
-  log "  ⚠️ claude -p failed or timed out — saving stub"
-  echo '{"cycle_at": "'$TIMESTAMP'", "scan_window_hours": 24, "proposals": []}' > "$PROPOSALS_FILE"
-}
+# Run analyzer: prefer DeepSeek API (cron-safe, no Max needed), fall back to claude
+LLM_OK=0
+if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+  log "  using DeepSeek API"
+  PROMPT_FILE="$CYCLE_BACKUP/prompt.txt"
+  echo "$FULL_PROMPT" > "$PROMPT_FILE"
+  PAYLOAD_FILE="$CYCLE_BACKUP/payload.json"
+  python3 -c "
+import json
+prompt = open('$PROMPT_FILE').read()
+payload = {'model':'deepseek-chat','messages':[{'role':'user','content':prompt}],'max_tokens':4000,'temperature':0.2}
+open('$PAYLOAD_FILE','w').write(json.dumps(payload))
+"
+  RESP_FILE="$CYCLE_BACKUP/response.json"
+  HTTP_CODE=$(curl -sS --max-time 120 -o "$RESP_FILE" -w "%{http_code}" https://api.deepseek.com/v1/chat/completions \
+    -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
+    -H "Content-Type: application/json" \
+    --data-binary @"$PAYLOAD_FILE" 2>/dev/null || echo "000")
+  if [ "$HTTP_CODE" = "200" ]; then
+    python3 -c "
+import json
+d = json.load(open('$RESP_FILE'))
+open('$PROPOSALS_FILE.raw','w').write(d['choices'][0]['message']['content'])
+" && LLM_OK=1
+    BYTES=$(wc -c < "$PROPOSALS_FILE.raw" 2>/dev/null || echo 0)
+    log "  ✓ DeepSeek response received (${BYTES} bytes)"
+  else
+    log "  ⚠️ DeepSeek HTTP $HTTP_CODE — falling back"
+  fi
+fi
+
+if [ $LLM_OK -eq 0 ] && command -v claude >/dev/null 2>&1; then
+  log "  using claude -p"
+  echo "$FULL_PROMPT" | timeout 120 claude --print --no-chrome 2>/dev/null > "$PROPOSALS_FILE.raw" && LLM_OK=1
+fi
+
+if [ $LLM_OK -eq 0 ]; then
+  log "  ⚠️ no LLM available — saving stub"
+  echo '{"cycle_at":"'$TIMESTAMP'","scan_window_hours":24,"proposals":[]}' > "$PROPOSALS_FILE.raw"
+fi
 
 # Extract JSON from output (claude may add markdown fences sometimes)
 python3 <<EOF > "$PROPOSALS_FILE" 2>/dev/null
@@ -216,19 +262,22 @@ for prop in proposals:
     try:
         if prop.get('action') == 'create_page':
             slug = prop['slug']
-            content = prop.get('prefilled_content', {})
-            # Use gbrain CLI to put_page (idempotent)
-            cmd = ['gbrain', 'put-page', slug, '--type', content.get('type', 'concept'), '--title', content.get('title', slug)]
-            r = subprocess.run(cmd, input=content.get('compiled_truth', ''), capture_output=True, text=True, timeout=10)
+            content = prop.get('prefilled_content', {}) or {}
+            page_type = content.get('type') or ('person' if slug.startswith('people/') else ('company' if slug.startswith('companies/') else ('concept' if slug.startswith('concepts/') else 'note')))
+            title = content.get('title') or slug.split('/')[-1].replace('-', ' ').title()
+            body = content.get('compiled_truth') or content.get('body') or prop.get('evidence', '')
+            md = f"---\ntitle: {title}\ntype: {page_type}\nsource: compound-engine\ncreated_at: {os.environ.get('TIMESTAMP','')}\n---\n\n{body}\n"
+            cmd = ['gbrain', 'put', slug, '--content', md]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
             if r.returncode == 0:
                 applied += 1
                 cat_data['applied'] = cat_data.get('applied', 0) + 1
                 journal.write(f"  → ✓ applied\n\n")
             else:
                 errors += 1
-                journal.write(f"  → ❌ error: {r.stderr[:100]}\n\n")
+                journal.write(f"  → ❌ error: {(r.stderr or r.stdout)[:200]}\n\n")
         elif prop.get('action') == 'add_link':
-            cmd = ['gbrain', 'add-link', prop['from'], prop['to'], '--type', prop.get('link_type', 'relates_to')]
+            cmd = ['gbrain', 'link', prop['from'], prop['to'], '--type', prop.get('link_type', 'relates_to')]
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             if r.returncode == 0:
                 applied += 1
@@ -236,12 +285,12 @@ for prop in proposals:
                 journal.write(f"  → ✓ applied\n\n")
             else:
                 errors += 1
-                journal.write(f"  → ❌ error: {r.stderr[:100]}\n\n")
+                journal.write(f"  → ❌ error: {(r.stderr or r.stdout)[:200]}\n\n")
         else:
             skipped += 1
     except Exception as e:
         errors += 1
-        journal.write(f"  → ❌ exception: {str(e)[:100]}\n\n")
+        journal.write(f"  → ❌ exception: {str(e)[:200]}\n\n")
 
 journal.close()
 
