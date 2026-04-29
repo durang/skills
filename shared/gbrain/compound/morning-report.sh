@@ -19,9 +19,13 @@ if [ ! -f "$JOURNAL" ]; then
 fi
 
 # Build summary
-SUMMARY=$(python3 <<EOF
+JOURNAL_PATH="$JOURNAL"
+export JOURNAL_PATH
+SUMMARY=$(python3 <<'EOF'
+import os
+JOURNAL = os.environ['JOURNAL_PATH']
 import re
-content = open("$JOURNAL").read()
+content = open(JOURNAL).read()
 applied = len(re.findall(r'→ ✓ applied', content))
 errors = len(re.findall(r'→ ❌', content))
 skipped = len(re.findall(r'skip-low-confidence', content))
@@ -42,9 +46,9 @@ print(f"⏭ Skipped: {skipped}")
 if errors > 0:
     print(f"❌ Errors: {errors}")
 print(f"\nTop categories: {cat_str if cat_str else '(none)'}")
-print(f"\nFull journal: \`$JOURNAL\`")
-print(f"Status: \`/gbrain compound status\`")
-print(f"Revert one: \`/gbrain compound revert <id>\`")
+print(f"\nFull journal: `{JOURNAL}`")
+print(f"Status: `/gbrain compound status`")
+print(f"Revert one: `/gbrain compound revert <id>`")
 EOF
 )
 
