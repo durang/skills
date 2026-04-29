@@ -158,6 +158,7 @@ run_check() {
   echo "| \`/gbrain manual\` | 📖 **Manual completo** con casos de uso. Si dudas qué correr, este |"
   echo "| \`/gbrain bootstrap\` | Verifica TODO el stack instalado correcto. Idempotente |"
   echo "| \`/gbrain custom-instructions\` (o \`ci\`) | Genera el bloque actualizado para claude.ai. Compara vs lo aplicado |"
+  echo "| \`/gbrain compound [status\|history\|dry-run]\` | 🌙 Compounding Engine — brain mejora overnight (auto). \`status\` ve confidence, \`dry-run\` testa sin aplicar |"
   echo "| \`/gbrain principles\` | Reglas operacionales (canónico siempre gana, etc.) |"
   echo "| \`/gbrain manifest\` | Inventario canónico del stack (versiones, schemas) |"
   echo "| \`/gbrain news\` | Releases + PRs + issues abiertos en gbrain upstream |"
@@ -1264,6 +1265,23 @@ case "$SUBCMD" in
   principles) cat "$SKILL_DIR/PRINCIPLES.md" ;;
   manifest) cat "$SKILL_DIR/MANIFEST.json" ;;
   manual) cat "$SKILL_DIR/MANUAL.md" ;;
+  compound)
+    SUB="${2:-run}"
+    case "$SUB" in
+      run|status|history|revert|dry-run)
+        bash "$SKILL_DIR/compound/run.sh" "$SUB" "${3:-}"
+        ;;
+      *)
+        echo "Usage: /gbrain compound [run|status|history|revert <id>|dry-run]"
+        echo ""
+        echo "  run        Full cycle — analyze + auto-apply changes"
+        echo "  dry-run    Analyze only — show proposals, apply nothing"
+        echo "  status     Current confidence per category + lifetime stats"
+        echo "  history    Last 10 cycles' journals"
+        echo "  revert <id>  Queue a specific change for revert next cycle"
+        ;;
+    esac
+    ;;
   custom-instructions|ci)
     DB_URL=$(python3 -c "import json; print(json.load(open('$HOME/.gbrain/config.json'))['database_url'])" 2>/dev/null)
     SKILL_VERSION=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')

@@ -148,6 +148,32 @@ Ver `PRINCIPLES.md` para detalle completo + decision log con fechas.
 
 ---
 
+## 🌙 Compounding Engine (NEW — autonomous brain improvement)
+
+Each night at 03:00 Hermosillo, the brain auto-improves:
+
+1. **Analyzes** all pages captured in last 24h
+2. **Detects** 7 categories of opportunities (people orphans, page orphans, link gaps, duplications, incomplete pages, archive candidates, synthesis opportunities)
+3. **Auto-applies** changes in categories with confidence ≥ 0.70
+4. **Skips** low-confidence categories until they earn confidence via your reverts
+5. **Reports** Telegram silent push at 08:00 Hermosillo with summary
+
+**Subcommands:**
+
+```
+/gbrain compound run           # Manual trigger of a cycle (cron does this nightly anyway)
+/gbrain compound dry-run       # Test without applying — see what it would do
+/gbrain compound status        # Confidence per category + lifetime stats
+/gbrain compound history       # Last 10 cycles' journals
+/gbrain compound revert <id>   # Queue revert of a specific change in next cycle
+```
+
+**Learning loop:** every revert lowers confidence in that category. After 30+ cycles, the engine knows your preferences and only auto-applies in categories you've consistently approved.
+
+**Storage:** journal at `~/.openclaw/skills/gbrain/compound/journal/compound-YYYY-MM-DD.md`. Backups at `~/.openclaw/skills/gbrain/compound/backups/<timestamp>/`. Confidence in `learning.json`.
+
+**Costs:** $0 (uses your Claude Max subscription via `claude -p`, not API key).
+
 ## Wrapper security features (activas)
 
 Como de 2026-04-28, el wrapper `gbrain-http-wrapper` corre con estas protecciones:
