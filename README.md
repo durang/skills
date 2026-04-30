@@ -63,6 +63,16 @@ That's it. 5 minutes from zero to a fully populated skills system.
 | `./install.sh --prune` | Remove skills from local dirs that were deleted from the repo |
 | `./install.sh --dry-run` | Show what would happen without applying |
 
+## Current inventory
+
+| Track | Skills |
+|---|---|
+| `claude/` (12) | gsap-core, gsap-frameworks, gsap-performance, gsap-plugins, gsap-react, gsap-scrolltrigger, gsap-timeline, gsap-utils, mmx-cli, openclaw-security, openclawcontinue, openclawtrack |
+| `openclaw/` (2) | brain-write-macro, signal-detector |
+| `shared/` (1) | gbrain (canonical health dashboard + 7th-phase compounding engine) |
+
+`shared/gbrain/` mirrors the standalone [gbrain-skill](https://github.com/durang/gbrain-skill) repo — same `run.sh`, `compound/`, `MANIFEST.json`, `MANUAL.md`, `PRINCIPLES.md`, `bootstrap.sh`. The standalone repo carries extra docs (ARCHITECTURE.md, CAPTURE.md, INSTALL.md, PHASE_4_GUIDE.md, etc.) intended for outside users; this monorepo carries the operational core that gets deployed to `~/.openclaw/skills/gbrain/`.
+
 ## Audit
 
 Run `/gbrain bootstrap` (from the [gbrain-skill](https://github.com/durang/gbrain-skill))
