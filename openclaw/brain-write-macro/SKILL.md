@@ -4,12 +4,22 @@ description: "Explicit save macro — when user says 'guarda en gbrain' (and 23 
 allowed-tools: Bash Read Write
 user-invocable: false
 companion-skills: signal-detector gbrain
-custom-instructions-version: 2
+custom-instructions-version: 3
 custom-instructions-changelog: |
   v1 (2026-04-28 03:30): initial — phrase trigger, put_page, add_link, slug list confirm
   v2 (2026-04-28 05:42): added CHECK BEFORE WRITE (get_page+merge), explicit type frontmatter,
                           ASCII slug rules (no accents), trigger exclusions (file/Drive saves),
                           (new)/(enriched) markers in confirm output, error reporting on tool failure
+  v3 (2026-05-01 22:00): R1 conflict-flag (no overwrite when get_page returns contradicting field —
+                          append "## Posible contradicción" block instead),
+                          R2 source-tracking (frontmatter `sources: [{date, channel, session_id}]`
+                          replaces the old "merged-from-chatbot" tag pattern),
+                          extended page types (concept, project, recipe, source) and link types
+                          (owns, collaborates_with, superseded_by, mentioned_in, subject_of,
+                          negotiating, advises) — to be hydrated dynamically from gbrain via
+                          `/gbrain custom-instructions --adaptive`,
+                          meta-content guard (rule 7) — never write a page whose body describes
+                          the conversation rather than the entity.
 upstream-status: |
   Not yet in gbrain core. As of 2026-04-28, gbrain has no native "save by phrase" mechanism — it has put_page (manual) + signal-detector skill (per-message ambient). This macro fills the gap for clients without hooks (Desktop/web/mobile).
   Auto-disable when: gbrain ships a `gbrain__save_conversation` tool OR a server-side phrase-trigger handler. Recheck via /gbrain Layer 11b which queries `gbrain --help` for those.
@@ -90,11 +100,37 @@ Activate when user message matches any of these **EXACTLY or as a clear intent v
 - If the page exists: READ its current `compiled_truth`, then call `gbrain__put_page` with the **merged content** (existing + new attributes from this conversation).
 - If not found: write fresh.
 
+**Step 3.5 — R1 CONFLICT FLAG (NO overwrite on contradiction):**
+- If a field in the existing page (status, role, company, location, dates, amounts) **contradicts** the new value from this conversation, do NOT overwrite. Instead, append a block at the end of the page:
+  ```
+  ## Posible contradicción (YYYY-MM-DD)
+  - **Field**: <field name, e.g. "status">
+  - **Valor anterior**: <old value>
+  - **Valor nuevo**: <new value>
+  - **Source**: <channel, e.g. "claude.ai web session">
+  - **Acción**: verificar con Sergio
+  ```
+- Reason: silent overwrite from a partial-context client (claude.ai web, chatbot) is the same class of bug as truncating data — the user must arbitrate.
+- Confirm output marks these as `(conflict-flagged)` instead of `(enriched)`.
+
 **Step 4 — WRITE PAGES with required frontmatter:**
 - `gbrain__put_page slug:"people/<...>"      type:"person"     title:"<Full Name>"`
 - `gbrain__put_page slug:"companies/<...>"   type:"company"    title:"<Company Name>"`
 - `gbrain__put_page slug:"decisions/<...>"   type:"decision"   title:"<one-line summary>"`
 - `gbrain__put_page slug:"originals/<...>"   type:"original"   title:"<short header>"`
+- `gbrain__put_page slug:"projects/<...>"    type:"project"    title:"<Project Name>"`
+- `gbrain__put_page slug:"concepts/<...>"    type:"concept"    title:"<Concept Header>"`
+- `gbrain__put_page slug:"recipes/<...>"     type:"recipe"     title:"<Recipe Header>"`
+
+**Step 4.5 — R2 SOURCE TRACKING (every put_page includes provenance):**
+- Add to frontmatter (append to array if exists, do not replace):
+  ```yaml
+  sources:
+    - date: YYYY-MM-DD
+      channel: claude-ai-web | claude-code | telegram | hermes | openclaw
+      session_id: <opaque short id>
+  ```
+- Reason: when a page is wrong, you need to know which client wrote it so you can fix the upstream client. Tags like `merged-from-chatbot` are unstructured and not queryable.
 
 **Step 5 — CREATE LINKS for cross-references with `gbrain__add_link`:**
 - Person works at Company → `from:"people/x" to:"companies/y" type:"works_at"`
@@ -103,13 +139,22 @@ Activate when user message matches any of these **EXACTLY or as a clear intent v
 - Person met with Person → `type:"met_with"`
 - Person advised Person → `type:"advised"`
 - Person collaborates with Person → `type:"collaborates_with"`
+- Company owns Company → `type:"owns"`
+- Person/Company subject_of Decision/Project → `type:"subject_of"`
+- Page mentioned_in Source → `type:"mentioned_in"`
+- Page A superseded_by Page B (rename/consolidation) → `type:"superseded_by"`
+- Person negotiating with Person/Company → `type:"negotiating"`
+- Person advises Company → `type:"advises"`
+
+**NOTE:** This list is the static fallback. The canonical, brain-aware list comes from `gbrain custom-instructions --adaptive` which queries the live page/link types from your brain and injects them into the snippet. Use that whenever possible.
 
 **Step 6 — CONFIRM with the actual slugs you wrote AFTER all tool calls succeed:**
 
 ```
 ✅ Guardado en gbrain:
 - people/mike-shapiro (new)
-- people/jason-X (enriched)
+- people/jason-prescott (enriched)
+- people/sarah-chen (conflict-flagged: status "advisor" vs "investor")
 - companies/elafris (new)
 - companies/digital-kozak-llc (new)
 - decisions/proposed-pool-split-33-30-30-10 (new)
@@ -117,7 +162,10 @@ Activate when user message matches any of these **EXACTLY or as a clear intent v
 - 4 links: mike→elafris (founded), mike→digital-kozak (founded), jason→pool-split (proposed), ...
 ```
 
-The `(new)` / `(enriched)` markers come from Step 3: if `get_page` returned a page, it's `enriched`; if not found, it's `new`.
+Markers come from Step 3 / Step 3.5:
+- `(new)` — `get_page` returned 404, page written fresh
+- `(enriched)` — `get_page` found existing page, content merged
+- `(conflict-flagged)` — `get_page` found existing page with a field that contradicts the new value; "Posible contradicción" block appended; user must verify
 
 ## CRITICAL RULES — anti-hallucination
 
@@ -131,6 +179,8 @@ The `(new)` / `(enriched)` markers come from Step 3: if `get_page` returned a pa
 4. **For `originals` (the user's ideas), preserve exact phrasing in compiled_truth, not paraphrase.** Voice matters. The user uses gbrain to retrieve their own words later, not your summary of their words.
 5. **One reply at the end with the slug list.** No commentary mid-process. No "let me check..." messages between tool calls.
 6. **NEVER write pages with no attributes.** A `people/john` with empty body is just noise. Skip name-only mentions entirely.
+7. **NEVER write meta-content as if it were the entity.** A page `people/jason-prescott` whose body is "User initiated export request..." is wrong — the body is a description of the conversation, not the person. If you don't have substantive attributes about the entity, **don't write the page**. This rule was added 2026-05-01 after a claude.ai web session created 3 such meta-pages in one turn.
+8. **NEVER overwrite a contradicting field silently** (R1). Always flag with the contradiction block. The user is the only authority that can resolve facts.
 
 ## Verifying capture (debug for the user)
 

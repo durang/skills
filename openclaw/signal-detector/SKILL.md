@@ -1,6 +1,13 @@
 ---
 name: signal-detector
-version: 1.0.0
+version: 1.1.0
+changelog: |
+  1.0.0 (initial): per-message ambient capture, originals + entities
+  1.1.0 (2026-05-01): aligned with brain-write-macro v3 — R1 conflict-flag (no overwrite on
+                       contradicting field, append "Posible contradicción" block instead),
+                       R2 source-tracking (frontmatter `sources: [{date, channel, session_id}]`,
+                       channel=claude-code-stop-hook), meta-content guard (skip writes that
+                       describe the conversation rather than the entity).
 description: |
   Always-on ambient signal capture. Fires on every inbound message to detect
   original thinking and entity mentions. Spawn as a cheap sub-agent in parallel,
@@ -76,6 +83,48 @@ meetings, and concepts. An original without cross-links is a dead original.
    - If page exists but THIN → trigger enrich
    - If page exists and RICH → no action
 3. For new FACTS with specific dates → call `gbrain timeline-add <slug> <date> "<summary>"`
+
+### Phase 2.5: R1 Conflict flag (aligned with brain-write-macro v3)
+
+When enriching an existing page, if the new fact **contradicts** an existing field
+(status, role, company, location, dates, amounts), do NOT overwrite. Append:
+
+```
+## Posible contradicción (YYYY-MM-DD)
+- **Field**: <field name>
+- **Valor anterior**: <old>
+- **Valor nuevo**: <new>
+- **Source**: claude-code-stop-hook
+- **Acción**: verificar con Sergio
+```
+
+The user is the only authority for fact resolution. The hook never silently overwrites.
+
+### Phase 2.6: R2 Source tracking (aligned with brain-write-macro v3)
+
+Every `put_page` from this hook adds (or appends to existing array):
+
+```yaml
+sources:
+  - date: YYYY-MM-DD
+    channel: claude-code-stop-hook
+    session_id: <claude code session id>
+```
+
+This makes it possible to trace which client wrote which content — critical for
+diagnosing duplication or meta-content bugs across clients (claude.ai web, telegram,
+hermes, openclaw, etc.).
+
+### Phase 2.7: Meta-content guard
+
+Do NOT write a page whose body describes the conversation rather than the entity.
+Examples of bad bodies that must be rejected:
+- "User initiated export request of all information about X"
+- "Contact referenced in user's final instruction regarding Y"
+- "User asked Claude to save Z"
+
+If the only content you can extract about an entity is meta-narrative about the
+conversation, **skip the write**. A bad page is worse than no page.
 
 **Auto-link (v0.10.1):** When you write/update an originals or ideas page that
 references a person or company, the auto-link post-hook on `put_page`
