@@ -191,6 +191,32 @@ If user later asks "¿se guardó?" / "did it save?":
 
 If the page does NOT exist: the previous capture failed silently. Apologize and retry.
 
+## Ownership map — who owns what for custom instructions
+
+This is the canonical answer to "where do the Claude.ai custom instructions live?":
+
+| Component | Role | File |
+|---|---|---|
+| **`brain-write-macro`** (this skill) | **SOURCE OF TRUTH** for the rules. Frontmatter `custom-instructions-version` is the spec version. The Procedure section IS the custom instructions content. When you bump the version here, every other component below must update or it goes out of sync. | `~/skills/openclaw/brain-write-macro/SKILL.md` |
+| **`signal-detector`** (sister skill) | Mirrors the same rules for the per-message Stop hook (Claude Code CLI). Phases 2.5/2.6/2.7 align 1:1 with brain-write-macro Steps 3.5/4.5 + rule 7. | `~/skills/openclaw/signal-detector/SKILL.md` |
+| **`gbrain` skill** (`run.sh`) | EMITS the snippet via `/gbrain custom-instructions [--adaptive]`. Reads spec version from THIS file's frontmatter. `--adaptive` injects live page/link types from the brain DB. | `~/skills/shared/gbrain/run.sh` (subcommand `custom-instructions`) |
+| **`gbrain-http-wrapper`** | SERVES the snippet over HTTP at `/.well-known/mcp/custom-instructions` for clients that can't run a CLI (claude.ai web/app). Same content, JSON-wrapped, served from `https://<wrapper-url>/mcp/.well-known/mcp/custom-instructions`. | `~/gbrain-http-wrapper/src/server.ts` |
+| **`/gbrain custom-instructions-applied.flag`** | Tracks which version the user has actually pasted into claude.ai → Profile. Layer 18 in `/gbrain check` compares spec vs applied and flags out-of-sync. | `~/.gbrain/custom-instructions-applied.flag` |
+| **Layer 18 in `/gbrain check`** | Visualizes all 4 clients (Claude Code CLI, OpenClaw/Telegram, HERMES, Claude.ai web) and which ones are at the current spec version. | `~/skills/shared/gbrain/run.sh` (Layer 18 block) |
+
+**To bump the spec (e.g. v3 → v4):**
+1. Edit this file's `custom-instructions-version` frontmatter and changelog.
+2. Edit the snippet inside `~/skills/shared/gbrain/run.sh` (subcommand `custom-instructions`, the `cat <<'EOF' ... EOF` block).
+3. Edit the snippet inside `~/gbrain-http-wrapper/src/server.ts` (the `/.well-known/mcp/custom-instructions` handler).
+4. Edit `signal-detector/SKILL.md` if the change affects per-message capture.
+5. `cd ~/skills && bash install.sh` propagates skills to install dirs.
+6. `sudo systemctl restart gbrain-http-wrapper.service` reloads the HTTP endpoint.
+7. `hermes claw migrate --overwrite --yes --skill-conflict overwrite` for HERMES.
+8. User pastes new snippet in claude.ai; `echo <new-version> > ~/.gbrain/custom-instructions-applied.flag`.
+9. `/gbrain check` Layer 18 should show all 4 ✅ and `/gbrain integrate claude.ai` should show "in sync".
+
+The reason `brain-write-macro` is the source of truth (and not, say, `gbrain` skill): this skill is the one that DEFINES what counts as a write to gbrain. The other skills SERVE or DISTRIBUTE the rules — they should always read from here, never define their own version.
+
 ## Where this skill is referenced
 
 - `~/SOUL.md` Iron Rules section — references this skill by name
