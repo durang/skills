@@ -838,6 +838,126 @@ PY
   echo "Failures / Total runs (últimas 24h): **$CRON_RATE**"
   echo ""
 
+  # ─── Layer 14b: System crontab jobs (audit declarado vs real) ───
+  echo "## 🗓️ Layer 14b — System crontab (canonical jobs declarados en MANIFEST)"
+  echo ""
+  echo "_¿Qué mido?_ Cruzo lo que está declarado en \`MANIFEST.json → system_crontab_jobs\` (la fuente canónica) contra lo que realmente está en \`crontab -l\` del sistema. Detecta si un job canónico falta, está duplicado, o tiene cadencia drift. Aplica también a jobs migrados de OpenClaw isolated-cron a system shell-cron (el patrón canónico recomendado por Garry en docs/guides/live-sync.md)."
+  echo ""
+  python3 <<'PY'
+import json, subprocess, re, os
+manifest_path = os.path.expanduser("~/.openclaw/skills/gbrain/MANIFEST.json")
+try:
+    mf = json.load(open(manifest_path))
+    # MANIFEST stores it under /components/system_crontab_jobs
+    declared = mf.get("components", {}).get("system_crontab_jobs", [])
+    if not declared:
+        declared = mf.get("contracts", {}).get("system_crontab_jobs", [])
+except Exception as e:
+    print(f"⚠️ MANIFEST.json no accesible: {e}")
+    declared = []
+
+# Read actual system crontab
+try:
+    actual = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=5).stdout.splitlines()
+except Exception:
+    actual = []
+
+if not declared:
+    print("_(no `system_crontab_jobs` declarados en MANIFEST.json todavía)_")
+else:
+    print("| Job | Cadencia esperada | En crontab? | Última corrida (log) |")
+    print("|---|---|---|---|")
+    for job in declared:
+        name = job.get("name", "?")
+        sched = job.get("schedule", "?")
+        cmd = job.get("command", "")
+        # Use explicit match_pattern if provided, otherwise build from command
+        match_str = job.get("match_pattern", "")
+        if not match_str:
+            # Heuristic: find a unique 2-word signature in the command
+            # Prefer "<binary> <subcommand>" like "gbrain sync", "install.sh"
+            tokens = cmd.replace("&&", " ").split()
+            for i, tok in enumerate(tokens):
+                base = os.path.basename(tok.replace("$HOME", os.path.expanduser("~")))
+                # Find a binary-ish token followed by a subcommand
+                if base in ("gbrain", "openclaw", "hermes") and i + 1 < len(tokens) and not tokens[i+1].startswith("-"):
+                    match_str = f"{base} {tokens[i+1]}"
+                    break
+                if base.endswith(".sh") or base.endswith(".py"):
+                    match_str = base
+                    break
+            if not match_str and tokens:
+                match_str = tokens[0]
+        in_crontab = "❌ falta"
+        for line in actual:
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped:
+                continue
+            if match_str and match_str.replace("$HOME", os.path.expanduser("~")) in line.replace("$HOME", os.path.expanduser("~")):
+                # also check schedule matches
+                line_sched = " ".join(stripped.split()[:5])
+                if line_sched == sched:
+                    in_crontab = "✅"
+                else:
+                    in_crontab = f"⚠️ schedule drift (got `{line_sched}`)"
+                break
+        # Find latest log entry
+        log_info = "—"
+        for log_path_tpl in [
+            os.path.expanduser("~/.gbrain/logs/sync.log"),
+            os.path.expanduser("~/.gbrain/logs/skills-sync.log"),
+            os.path.expanduser("~/.gbrain/logs/compound.log"),
+            os.path.expanduser("~/.gbrain/logs/corpus-convert.log"),
+        ]:
+            base = os.path.basename(log_path_tpl).replace(".log","")
+            name_lower = name.lower()
+            if (base in name_lower or any(k in name_lower for k in base.split("-"))) and os.path.exists(log_path_tpl):
+                try:
+                    import datetime
+                    mt = os.path.getmtime(log_path_tpl)
+                    age_min = (datetime.datetime.now().timestamp() - mt) / 60
+                    if age_min < 60:
+                        log_info = f"hace {int(age_min)}m"
+                    elif age_min < 1440:
+                        log_info = f"hace {int(age_min/60)}h"
+                    else:
+                        log_info = f"hace {int(age_min/1440)}d"
+                except: pass
+                break
+        print(f"| **{name}** | `{sched}` | {in_crontab} | {log_info} |")
+    print()
+    # Check for orphan crontab entries (in actual but not declared)
+    declared_cmds = []
+    for job in declared:
+        for tok in job.get("command","").split():
+            if "/" in tok or tok.startswith("gbrain"):
+                declared_cmds.append(tok.replace("$HOME", os.path.expanduser("~")))
+                break
+    orphans = []
+    for line in actual:
+        stripped = line.strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        # Skip non-cron lines
+        parts = stripped.split()
+        if len(parts) < 6:
+            continue
+        # Check if this line matches any declared command
+        line_norm = stripped.replace("$HOME", os.path.expanduser("~"))
+        matched = any(c in line_norm for c in declared_cmds)
+        if not matched:
+            # Get a short summary of the orphan
+            cmd_part = " ".join(parts[5:])[:80]
+            orphans.append(cmd_part)
+    if orphans:
+        print(f"**Crontab orphans** (en sistema pero no declarados en MANIFEST):")
+        for o in orphans:
+            print(f"- ⚪ `{o}`")
+        print()
+        print("_Si algún orphan es canónico, agrégalo a `MANIFEST.json → system_crontab_jobs` para que Layer 14b lo trackee._")
+PY
+  echo ""
+
   # ─── Layer 15: Upstream changelog vs implementado ───
   echo "## 🚀 Layer 15 — Upstream changelog (commits + posts del autor)"
   echo ""
@@ -1238,6 +1358,87 @@ Run /gbrain en Telegram para detalle.")
     echo "\`\`\`"
     echo ""
   fi
+
+  # ─── Layer 18b — Modelo activo + alineación cross-runtime (live read) ───
+  echo "## 🎛️ Layer 18b — Modelo activo en cada runtime (live, no cache)"
+  echo ""
+  echo "_¿Qué mido?_ Lee EN VIVO qué modelo está corriendo cada bot. Cuando cambias de modelo (algo que haces rápido), aquí ves si quedó alineado o si hay drift entre OpenClaw / Hermes / codex CLI. Cero hardcoding — todo viene de los config files actuales."
+  echo ""
+  # OpenClaw primary model + runtime
+  OC_PRIMARY=$(python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); print(cfg['agents']['defaults']['model']['primary'])" 2>/dev/null || echo "?")
+  OC_FALLBACKS=$(python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); print(','.join(cfg['agents']['defaults']['model']['fallbacks']))" 2>/dev/null || echo "?")
+  OC_RUNTIME=$(python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); rt=cfg['agents']['defaults'].get('agentRuntime',{}); print(rt.get('id','default-pi') + ' (fallback=' + rt.get('fallback','-') + ')')" 2>/dev/null || echo "?")
+  OC_CODEX_PLUGIN=$(python3 -c "import json; cfg=json.load(open('$HOME/.openclaw/openclaw.json')); p=cfg.get('plugins',{}).get('entries',{}).get('codex',{}); print('enabled' if p.get('enabled') else 'disabled')" 2>/dev/null || echo "?")
+  # Hermes default model + provider
+  HM_DEFAULT=$(grep -E "^  default:" "$HOME/.hermes/config.yaml" 2>/dev/null | head -1 | awk '{print $2}' || echo "?")
+  HM_PROVIDER=$(awk '/^model:/{found=1; next} found && /^  provider:/{print $2; exit} /^[^ ]/{found=0}' "$HOME/.hermes/config.yaml" 2>/dev/null || echo "?")
+  HM_BASEURL=$(grep -E "^  base_url:" "$HOME/.hermes/config.yaml" 2>/dev/null | head -1 | awk '{print $2}' || echo "?")
+  # Codex CLI auth status (parse auth.json directly — más confiable que codex CLI subshell)
+  CODEX_AUTH_FILE=$([ -f "$HOME/.codex/auth.json" ] && echo "✅" || echo "❌")
+  CODEX_AUTH=$(python3 - <<'PY' 2>/dev/null
+import json, base64, os, datetime
+try:
+    p = os.path.expanduser("~/.codex/auth.json")
+    if not os.path.exists(p):
+        print("not installed"); raise SystemExit
+    data = json.load(open(p))
+    tok = data.get("tokens", {}).get("access_token", "")
+    if not tok:
+        print("auth.json present but no access_token"); raise SystemExit
+    parts = tok.split(".")
+    if len(parts) < 2:
+        print("malformed token"); raise SystemExit
+    pad = parts[1] + "=" * (-len(parts[1]) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(pad).decode())
+    exp = claims.get("exp", 0)
+    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    plan = claims.get("https://api.openai.com/auth", {}).get("chatgpt_plan_type", "?")
+    if exp < now:
+        print(f"EXPIRED ({datetime.datetime.fromtimestamp(exp)}, plan={plan})")
+    else:
+        days_left = (exp - now) / 86400
+        print(f"Logged in using ChatGPT ({plan}, {days_left:.1f}d left)")
+except Exception as e:
+    print(f"check failed: {e}")
+PY
+)
+  [ -z "$CODEX_AUTH" ] && CODEX_AUTH="unknown"
+
+  # Alignment check: ¿OpenClaw + Hermes ambos usan codex? ¿el auth file está?
+  USES_CODEX_OC=$([[ "$OC_RUNTIME" == codex* ]] && echo "yes" || echo "no")
+  USES_CODEX_HM=$([[ "$HM_PROVIDER" == "openai-codex" ]] && echo "yes" || echo "no")
+  CODEX_LOGGED_IN=$([[ "$CODEX_AUTH" == *"Logged in"* ]] && echo "yes" || echo "no")
+
+  echo "| Runtime | Modelo activo | Auth/Provider | Status |"
+  echo "|---|---|---|---|"
+  echo "| **OpenClaw** (Jarvis) | \`$OC_PRIMARY\` → fallbacks: $OC_FALLBACKS | runtime: \`$OC_RUNTIME\`, codex plugin: $OC_CODEX_PLUGIN | $([ "$USES_CODEX_OC" = "yes" ] && [ "$CODEX_LOGGED_IN" = "yes" ] && echo "✅ aligned" || echo "⚠️ verificar") |"
+  echo "| **Hermes** (shermesbot) | \`$HM_DEFAULT\` | provider: \`$HM_PROVIDER\` → \`$HM_BASEURL\` | $([ "$USES_CODEX_HM" = "yes" ] && [ "$CODEX_LOGGED_IN" = "yes" ] && echo "✅ aligned" || echo "⚠️ verificar") |"
+  echo "| **Codex CLI nativo** | _bridge_ | auth.json: $CODEX_AUTH_FILE, status: $CODEX_AUTH | $([ "$CODEX_LOGGED_IN" = "yes" ] && echo "✅ Plus subscription" || echo "❌ NOT logged in") |"
+  echo ""
+
+  # Drift detection
+  DRIFT=""
+  if [ "$USES_CODEX_OC" = "yes" ] && [ "$CODEX_LOGGED_IN" != "yes" ]; then
+    DRIFT="${DRIFT}- 🔴 OpenClaw runtime=codex pero \`~/.codex/auth.json\` no está logueado → 401 al llamar OpenAI. Fix: \`codex login\` o reconstruir auth.json desde OpenClaw OAuth profile.\n"
+  fi
+  if [ "$USES_CODEX_HM" = "yes" ] && [ "$CODEX_LOGGED_IN" != "yes" ]; then
+    DRIFT="${DRIFT}- 🔴 Hermes provider=openai-codex pero codex CLI sin sesión → HTTP 400. Fix: igual que arriba.\n"
+  fi
+  if [[ "$OC_PRIMARY" != openai/* ]] && [ "$USES_CODEX_OC" = "yes" ]; then
+    DRIFT="${DRIFT}- 🔴 OpenClaw runtime=codex pero primary \`$OC_PRIMARY\` NO es openai/* — codex runtime rechaza otros providers (HTTP 400).\n"
+  fi
+  if [[ "$HM_DEFAULT" != openai/* ]] && [ "$USES_CODEX_HM" = "yes" ]; then
+    DRIFT="${DRIFT}- 🔴 Hermes provider=openai-codex pero default \`$HM_DEFAULT\` NO es openai/* — Codex rechaza con \"model not supported when using Codex with a ChatGPT account\".\n"
+  fi
+  if [ -n "$DRIFT" ]; then
+    echo "**Drift detectado:**"
+    printf -- "%b" "$DRIFT"
+  else
+    echo "✅ **Sin drift** — config alineado entre OpenClaw, Hermes y Codex CLI."
+  fi
+  echo ""
+  echo "_Cuando cambies de modelo: edita el config, restart, y vuelve a correr \`/gbrain check\`. Layer 18b lo refleja sin tocar este skill._"
+  echo ""
 
   # ─── Verdict + Quick actions ───
   echo "## 🎯 Veredicto + acciones"
