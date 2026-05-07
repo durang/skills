@@ -48,11 +48,27 @@ distribute-to: [openclaw]
 1. **Claude Code CLI** → Stop hook (`~/.claude/settings.json` → `signal-detector.py`) fires at end of every turn, runs Haiku over the transcript, writes pages.
 2. **Telegram (Harviz/OpenClaw)** → SOUL.md instructions tell the model to extract entities and call `gbrain__put_page` on every inbound message.
 
-**But Claude Desktop, Claude.ai web, and Claude.ai mobile have NEITHER.** Anthropic does not expose hooks for those clients (verified 2026-04-28: [Claude Code hooks docs](https://code.claude.com/docs/en/hooks-guide) — hooks are CLI-only). The model only writes to gbrain if:
-- The user pegs Custom Instructions in their claude.ai account telling it to, OR
-- The user explicitly asks: "guarda esto en mi brain"
+**But Claude Desktop, Claude.ai web, ChatGPT, and Codex CLI have NO automatic hooks.** The model only writes to gbrain if:
+- The user pastes Custom Instructions telling it to, OR
+- The user explicitly says: "guarda en gbrain"
 
-This skill defines the **canonical behavior** for the explicit-phrase trigger so agents anywhere (Telegram, mobile via Custom Instructions, future MCP clients) implement it identically.
+This skill defines the **canonical behavior** for the explicit-phrase trigger so all clients implement it identically.
+
+### Client delivery map (where instructions live per client)
+
+| Client | How rules are delivered | Format |
+|---|---|---|
+| **Claude Code CLI** | Stop hook (signal-detector.py) — automatic | Full v3 (embedded in Haiku prompt) |
+| **claude.ai web/app** | Settings → Profile → Custom Instructions | Full v3 (via `/gbrain custom-instructions`) |
+| **ChatGPT App** | Settings → Personalización → Custom Instructions | Compact v3 (~780 chars, trigger: "guarda en gbrain") |
+| **Codex CLI** | `~/AGENTS.md` (gbrain section) | Full v3 (read automatically) |
+| **OpenClaw / Telegram** | SOUL.md + this skill loaded as skill | Full v3 (model reads SKILL.md) |
+| **Hermes** | Inherited via `hermes claw migrate` | Full v3 (imported skill) |
+| **Cron** (compound/dream) | Direct CLI calls | N/A (writes via gbrain CLI) |
+
+### R2 source-tracking channels (valid values)
+
+`claude-code-stop-hook`, `claude-ai-web`, `codex-cli`, `chatgpt-app`, `openclaw`, `hermes`, `cron-compound`, `cron-dream`
 
 ## Trigger phrases (ES + EN)
 

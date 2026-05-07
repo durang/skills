@@ -112,8 +112,10 @@ sources:
 ```
 
 This makes it possible to trace which client wrote which content — critical for
-diagnosing duplication or meta-content bugs across clients (claude.ai web, telegram,
-hermes, openclaw, etc.).
+diagnosing duplication or meta-content bugs across the 7 connected clients.
+
+**All valid R2 channels:** `claude-code-stop-hook`, `claude-ai-web`, `codex-cli`,
+`chatgpt-app`, `openclaw`, `hermes`, `cron-compound`, `cron-dream`
 
 ### Phase 2.7: Meta-content guard
 
