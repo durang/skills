@@ -4,7 +4,7 @@ description: "Explicit save macro — when user says 'guarda en gbrain' (and 23 
 allowed-tools: Bash Read Write
 user-invocable: false
 companion-skills: signal-detector gbrain
-custom-instructions-version: 3
+custom-instructions-version: 4.1
 custom-instructions-changelog: |
   v1 (2026-04-28 03:30): initial — phrase trigger, put_page, add_link, slug list confirm
   v2 (2026-04-28 05:42): added CHECK BEFORE WRITE (get_page+merge), explicit type frontmatter,
@@ -20,6 +20,24 @@ custom-instructions-changelog: |
                           `/gbrain custom-instructions --adaptive`,
                           meta-content guard (rule 7) — never write a page whose body describes
                           the conversation rather than the entity.
+  v4 (2026-05-11 01:50): R5 SEARCH side rule made PREFLIGHT and BROAD — fires on bare "busca"
+                          (not only "busca en gbrain"), on recall verbs ("qué tenía sobre X",
+                          "recuérdame Y"), and on implicit references to user's own data.
+  v4.1 (2026-05-11 02:00): R5 phrasing restored to Sergio's elegant pre-v4 catch-all
+                            "or asks about past conversations / people / companies / decisions /
+                            projects / tasks" — covers same breadth as v4 in 1 line vs 3 sections.
+                            ChatGPT snippet hybrid: keeps tight pre-v4 structure + adds R3 task,
+                            R4 proactive, SKIP rule, full link types. ~1450 chars (vs 1100 pre-v4
+                            and 1800 v4-fragmented).
+                          R3 task-type added (slug `tasks/<short>`, frontmatter status:
+                          pending|in_progress|done|blocked, optional priority/estimated_hours/due_date).
+                          R4 PROACTIVE detection without explicit phrase trigger — when model
+                          detects future project, actionable task, decision, or recurring entity
+                          WITH NEW substantive attributes, offer ONE LINE: "Detecté X. ¿Guardo
+                          como <type>/<slug>?" and wait for yes/no. Never auto-write proactively.
+                          Tasks vs daily-task-manager: tasks/ = captura/pendientes futuros; cuando
+                          se atacan, promover al daily-task-manager flow. Done tasks stay with
+                          timestamp, not auto-archived.
 upstream-status: |
   Not yet in gbrain core. As of 2026-04-28, gbrain has no native "save by phrase" mechanism — it has put_page (manual) + signal-detector skill (per-message ambient). This macro fills the gap for clients without hooks (Desktop/web/mobile).
   Auto-disable when: gbrain ships a `gbrain__save_conversation` tool OR a server-side phrase-trigger handler. Recheck via /gbrain Layer 11b which queries `gbrain --help` for those.
@@ -90,10 +108,26 @@ Activate when user message matches any of these **EXACTLY or as a clear intent v
 
 **Execute this exact sequence WITHOUT asking the user for details. Infer everything from the conversation.**
 
-### When NOT to trigger
+### When NOT to trigger (save side)
 
 - File/document save commands: "guarda este archivo", "save the file", "save the doc", "guarda en Drive", "guarda en Notion". Brain capture only.
 - Operational noise: pure "ok", "sí", "thanks", "/status".
+
+### R5 SEARCH side rule (v4.1 — PREFLIGHT, runs BEFORE everything else, all clients)
+
+**This is a PREFLIGHT rule. Apply BEFORE thinking, BEFORE answering, BEFORE save side.**
+
+**Canonical phrasing (use this exact wording in client snippets — proven elegance + breadth):**
+
+> When user says "busca", "busca en gbrain", "busca en mi brain", "search gbrain", "search my brain", **or asks about past conversations / people / companies / decisions / projects / tasks** — ALWAYS call `gbrain__search` (or `gbrain__query` for hybrid) FIRST. Never answer from model memory alone.
+
+The **"or asks about past..."** clause is the catch-all that covers implicit references like "¿quién es X?", "qué decidí sobre Y", "recuérdame Z", "qué pasó con W", "what did we agree on" — any question whose answer lives in the user's personal data.
+
+**When in doubt: search first.** The cost of an unnecessary `gbrain__search` call is tiny. The cost of answering from model memory and being wrong is high.
+
+If gbrain returns empty, say so explicitly: *"No encontré nada en gbrain sobre X. ¿Lo guardamos?"* — don't invent. Optionally connect to R4 proactive detection by offering to create the page.
+
+**Why this phrasing**: Sergio's pre-v4 ChatGPT snippet already had this catch-all working well. v4 initially fragmented it into 3 verbose categories which lost elegance and char budget without adding coverage. v4.1 restores the elegant phrasing while keeping the PREFLIGHT positioning + the "when in doubt, search" tiebreaker.
 
 ### Procedure
 
@@ -137,6 +171,10 @@ Activate when user message matches any of these **EXACTLY or as a clear intent v
 - `gbrain__put_page slug:"projects/<...>"    type:"project"    title:"<Project Name>"`
 - `gbrain__put_page slug:"concepts/<...>"    type:"concept"    title:"<Concept Header>"`
 - `gbrain__put_page slug:"recipes/<...>"     type:"recipe"     title:"<Recipe Header>"`
+- `gbrain__put_page slug:"tasks/<...>"       type:"task"       title:"<one-line action>"`
+  - **R3 task frontmatter** (v4): `status: pending|in_progress|done|blocked`, optional `priority: low|medium|high`, `estimated_hours`, `due_date: YYYY-MM-DD`.
+  - **Lifecycle**: `tasks/` = captura inicial / pendientes futuros. Cuando el usuario los ataca activamente, se promueven al flujo del skill `daily-task-manager`. Done tasks quedan con timestamp; no auto-archivadas.
+  - **vs daily-task-manager**: ese skill es el flujo diario activo. `tasks/<slug>` aquí es el punto de entrada — captura primero, ataca después.
 
 **Step 4.5 — R2 SOURCE TRACKING (every put_page includes provenance):**
 - Add to frontmatter (append to array if exists, do not replace):
@@ -182,6 +220,26 @@ Markers come from Step 3 / Step 3.5:
 - `(new)` — `get_page` returned 404, page written fresh
 - `(enriched)` — `get_page` found existing page, content merged
 - `(conflict-flagged)` — `get_page` found existing page with a field that contradicts the new value; "Posible contradicción" block appended; user must verify
+
+## R4 PROACTIVE detection (v4 — without explicit phrase trigger)
+
+When the user is NOT explicitly saying "guarda", but the conversation contains a substantive signal, **offer ONE LINE** to the user:
+
+| Pattern | Trigger | Offer |
+|---|---|---|
+| **A — future project** | "quiero hacer X eventualmente", "deberíamos armar Y", "no urge pero algún día Z", "estaría bueno construir W" | *"Detecté un proyecto. ¿Lo guardo como `projects/<slug>`?"* |
+| **B — actionable task** | "tengo que hacer X", "no olvidar Y", "pendiente: Z", "luego hago W" | *"Detecté una tarea. ¿Lo guardo como `tasks/<slug>`?"* |
+| **C — decision** | "decidí X", "vamos con Y", "mejor Z que W", "descartamos V" | *"Detecté una decisión. ¿Lo guardo como `decisions/<slug>`?"* |
+| **D — recurring entity** | Same person/company in 3+ turns AND with at least ONE NEW substantive attribute (role, company, location, event, decision) — NOT casual mention repetition | *"Estamos hablando bastante de X. ¿Guardo página con lo nuevo?"* |
+
+**Behavior rules**:
+- Show ONE LINE only. Wait for yes/no.
+- NEVER auto-write proactively. Always confirm.
+- If user says yes, run the full Procedure (Step 1-6) for that ONE detected item.
+- If user ignores the offer (doesn't reply to it), don't repeat. Don't bug.
+- Apply quality filter: pattern D requires NEW substantive attribute, not just repetition. "Mi mamá llamó / mi mamá cocinó / mi mamá vino" without new info → don't offer.
+
+**Why proactive instead of fully automatic**: silent auto-writes from a partial-context client (claude.ai web, ChatGPT) are how garbage gets into the brain. The user is the only authority on what's worth keeping. The 1-line offer is cheap; the user prunes by replying yes/no.
 
 ## CRITICAL RULES — anti-hallucination
 

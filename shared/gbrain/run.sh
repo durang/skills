@@ -225,7 +225,7 @@ except: print(0)" 2>/dev/null)
   [ "$QUEUE_DEPTH" -gt 100 ] 2>/dev/null && ALERTS+=("🟠 **Queue depth=$QUEUE_DEPTH** en autopilot-cycle — workers atorados")
 
   # Custom Instructions drift detection
-  CI_SPEC_VER=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
+  CI_SPEC_VER=$(grep -oE "^custom-instructions-version: [0-9.]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
   CI_APPLIED_VER=$(cat "$HOME/.gbrain/custom-instructions-applied.flag" 2>/dev/null | tr -d ' \n')
   [ -z "$CI_APPLIED_VER" ] && CI_APPLIED_VER="0"
   if [ -n "$CI_SPEC_VER" ] && [ "$CI_APPLIED_VER" != "$CI_SPEC_VER" ]; then
@@ -754,7 +754,7 @@ PY
       echo "  No hay reemplazo upstream todavía — este skill sigue siendo necesario."
     fi
     # Custom Instructions version drift check — alerta si hay que repegar el bloque
-    SKILL_CI_VERSION=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
+    SKILL_CI_VERSION=$(grep -oE "^custom-instructions-version: [0-9.]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
     [ -z "$SKILL_CI_VERSION" ] && SKILL_CI_VERSION="?"
     if [ -f "$HOME/.gbrain/custom-instructions-applied.flag" ]; then
       USER_CI_VERSION=$(head -1 "$HOME/.gbrain/custom-instructions-applied.flag" 2>/dev/null | tr -d ' \n')
@@ -1334,12 +1334,12 @@ Run /gbrain en Telegram para detalle.")
   echo ""
   echo "_¿Qué mido?_ Cualquier cliente que se conecte al MCP gbrain SIN las reglas v3 (CHECK BEFORE WRITE + R1 conflict-flag + R2 source-tracking) es una bomba de duplicación. Aquí veo cuáles tienes y cuáles tienen las reglas cargadas."
   echo ""
-  CI_VERSION=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
+  CI_VERSION=$(grep -oE "^custom-instructions-version: [0-9.]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
   CI_APPLIED=$(cat "$HOME/.gbrain/custom-instructions-applied.flag" 2>/dev/null | tr -d ' \n')
   [ -z "$CI_APPLIED" ] && CI_APPLIED="0"
   WRAPPER_URL=$(cat "$HOME/.gbrain/wrapper.url" 2>/dev/null | head -1)
   HOOK_INSTALLED=$([ -f "$HOME/.claude/settings.json" ] && grep -q "signal-detector" "$HOME/.claude/settings.json" 2>/dev/null && echo "yes" || echo "no")
-  HERMES_BWM=$([ -f "$HOME/.hermes/skills/openclaw-imports/brain-write-macro/SKILL.md" ] && grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.hermes/skills/openclaw-imports/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}' || echo "n/a")
+  HERMES_BWM=$([ -f "$HOME/.hermes/skills/openclaw-imports/brain-write-macro/SKILL.md" ] && grep -oE "^custom-instructions-version: [0-9.]+" "$HOME/.hermes/skills/openclaw-imports/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}' || echo "n/a")
   OC_SOUL=$([ -f "$HOME/SOUL.md" ] && grep -q "brain-write-macro\|gbrain__put_page" "$HOME/SOUL.md" 2>/dev/null && echo "yes" || echo "no")
   echo "| Cliente | Conectado | Reglas v3 | Estado |"
   echo "|---|---|---|---|"
@@ -1671,7 +1671,7 @@ case "$SUBCMD" in
     ;;
   custom-instructions|ci)
     DB_URL=$(python3 -c "import json; print(json.load(open('$HOME/.gbrain/config.json'))['database_url'])" 2>/dev/null)
-    SKILL_VERSION=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
+    SKILL_VERSION=$(grep -oE "^custom-instructions-version: [0-9.]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
     APPLIED_VERSION=$(cat "$HOME/.gbrain/custom-instructions-applied.flag" 2>/dev/null | tr -d ' \n')
     [ -z "$APPLIED_VERSION" ] && APPLIED_VERSION="0"
     ADAPTIVE_FLAG="${2:-}"
@@ -1716,13 +1716,30 @@ case "$SUBCMD" in
     echo ""
     echo "\`\`\`"
     cat <<'EOF'
-You have access to a "gbrain" MCP server (personal knowledge brain). When I say
-"guarda en gbrain", "guarda esto en mi brain", "lo importante en mi brain",
+You have access to a "gbrain" MCP server (personal knowledge brain).
+
+═══ PREFLIGHT (search) — runs BEFORE thinking, BEFORE answering ═══
+
+When I say "busca", "busca en gbrain", "busca en mi brain", "search gbrain", "search my brain",
+or ask about past conversations / people / companies / decisions / projects / tasks —
+ALWAYS call gbrain__search (or gbrain__query for hybrid) FIRST. Never answer from your own
+memory alone. This includes implicit references: "¿quién es X?", "qué decidí sobre Y",
+"recuérdame Z", "qué pasó con W", "what did we agree on", or any question whose answer
+lives in my personal data.
+
+If gbrain returns empty: say so explicitly. "No encontré nada en gbrain sobre X. ¿Lo
+guardamos?". Don't invent. When in doubt: search first.
+
+═══ DO NOT trigger SAVE on ═══
+
+"guarda este archivo", "save the file", "save the doc", "guarda en Drive/Notion".
+Brain capture only.
+
+═══ SAVE TRIGGERS ═══
+
+When I say "guarda en gbrain", "guarda esto en mi brain", "lo importante en mi brain",
 "captura en gbrain", "save to brain", "save this to gbrain", "mete esto al brain",
 or just "guarda" after a substantive turn, run this exact procedure:
-
-DO NOT trigger on file/document save commands ("guarda este archivo", "save the file",
-"save the doc"). Brain capture only.
 
 PROCEDURE:
 
@@ -1733,11 +1750,12 @@ PROCEDURE:
    - Decisions I took or stated ("vamos con X", "decidí Y", "let's go with Z", "no, mejor W").
    - Original ideas, theses, or strategic insights I framed (not generic Q&A — only my
      own framings). Preserve my exact phrasing in compiled_truth.
+   - Projects (future or in-flight initiatives) and tasks (specific actionable items).
 
 2. SLUG RULES:
    - Always kebab-case, lowercase, ASCII only (NO accents): sergio-duran, NOT sergio-durán.
    - Format: people/firstname-lastname, companies/name, decisions/short-summary,
-     originals/short-kebab, projects/<name>, concepts/<topic>, recipes/<name>.
+     originals/short-kebab, projects/<name>, tasks/<short>, concepts/<topic>, recipes/<name>.
 
 3. CHECK BEFORE WRITE (avoid duplicates):
    - Before each gbrain__put_page, call gbrain__get_page with fuzzy:true on the slug.
@@ -1764,6 +1782,9 @@ PROCEDURE:
    - put_page slug:"projects/<...>" type:"project" title:"<Project Name>"
    - put_page slug:"concepts/<...>" type:"concept" title:"<Concept Header>"
    - put_page slug:"recipes/<...>" type:"recipe" title:"<Recipe Header>"
+   - put_page slug:"tasks/<...>" type:"task" title:"<one-line action>"
+     R3 task frontmatter: status: pending|in_progress|done|blocked
+     optional: priority: low|medium|high, estimated_hours, due_date: YYYY-MM-DD
 
 4.5. R2 SOURCE TRACKING — every put_page includes provenance frontmatter:
    sources:
@@ -1788,16 +1809,41 @@ PROCEDURE:
 
 6. CONFIRM with the actual slugs you wrote AFTER all tool calls succeed:
 
-   Guardado en gbrain:
+   ✅ Guardado en gbrain:
    - people/mike-shapiro (new)
    - people/jason-prescott (enriched)
    - people/sarah-chen (conflict-flagged: status "advisor" vs "investor")
+   - tasks/buy-elevenlabs-api-key (new)
    - companies/elafris (new)
    - decisions/proposed-pool-split-33-30-30-10 (new)
    - originals/insurance-vertical-thesis (new)
    - 4 links: mike->elafris (founded), mike->digital-kozak (founded), ...
 
-CRITICAL RULES (anti-hallucination):
+═══ R4 PROACTIVE DETECTION (without explicit phrase trigger) ═══
+
+When I am NOT explicitly saying "guarda" but the conversation contains a substantive
+signal, offer ONE LINE to me:
+
+- Future project ("quiero hacer X eventualmente", "deberíamos armar Y"):
+  → "Detecté un proyecto. ¿Lo guardo como projects/<slug>?"
+- Actionable task ("tengo que hacer X", "no olvidar Y", "pendiente Z"):
+  → "Detecté una tarea. ¿Lo guardo como tasks/<slug>?"
+- Decision ("decidí X", "vamos con Y", "mejor Z que W"):
+  → "Detecté una decisión. ¿Lo guardo como decisions/<slug>?"
+- Recurring entity (same person/company in 3+ turns WITH new substantive attribute,
+  not casual repetition):
+  → "Estamos hablando bastante de X. ¿Guardo página con lo nuevo?"
+
+Show ONE line only. Wait for yes/no. NEVER auto-write proactively. If I ignore the
+offer, don't repeat. Quality filter: pattern D requires a NEW substantive attribute,
+not just repetition.
+
+Tasks vs daily-task-manager: tasks/ = initial capture / future intent. When I actively
+work on them, I promote to the daily-task-manager flow. Done tasks stay with timestamp;
+not auto-archived.
+
+═══ CRITICAL RULES (anti-hallucination) ═══
+
 - NEVER respond "guardado" / "saved" / "listo" / "done" without listing actual slugs you
   called put_page on. That is hallucination.
 - NEVER ask "que quieres que guarde?" / "what should I save?". Infer from the conversation.
@@ -1908,7 +1954,7 @@ EOF
         echo ""
         WRAPPER_URL=$(grep -oE "https://[^[:space:]]*" "$HOME/.gbrain/wrapper.url" 2>/dev/null | head -1)
         OAUTH_OK=$([ -f "$HOME/.gbrain/oauth.json" ] && echo "yes" || echo "no")
-        CI_VERSION=$(grep -oE "^custom-instructions-version: [0-9]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
+        CI_VERSION=$(grep -oE "^custom-instructions-version: [0-9.]+" "$HOME/.openclaw/skills/brain-write-macro/SKILL.md" 2>/dev/null | awk '{print $2}')
         APPLIED=$(cat "$HOME/.gbrain/custom-instructions-applied.flag" 2>/dev/null | tr -d ' \n')
         [ -z "$APPLIED" ] && APPLIED="0"
         echo "| Component | Status |"
