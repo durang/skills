@@ -1852,12 +1852,14 @@ PY
     echo "| 12 | OpenClaw silencio absoluto (no manda) | ⚠️ flags activos: $OC_SILENT | ❌ |"; fail=$((fail+1))
   fi
 
-  # 13. OpenClaw captura reciente — al menos 1 mensaje en últimas 24h
+  # 13. OpenClaw captura reciente — al menos 1 mensaje en últimas 24h.
+  # "in:Xs/m ago" o "in:1-23h ago" cuentan. "in:24h ago" o más = dormido.
   OC_RECENT=$(openclaw channels status 2>/dev/null | grep -i "WhatsApp default" | grep -oE "in:[^,]+" | head -1)
-  if echo "$OC_RECENT" | grep -qE "in:[0-9]+m|in:[0-9]+s|in:[0-9]h ago"; then
-    echo "| 13 | OpenClaw recibe mensajes (24h) | last in $OC_RECENT — captura activa | ✅ |"; pass=$((pass+1))
+  OC_HOURS=$(echo "$OC_RECENT" | grep -oE "in:[0-9]+h" | grep -oE "[0-9]+")
+  if echo "$OC_RECENT" | grep -qE "in:[0-9]+(s|m) ago" || { [ -n "$OC_HOURS" ] && [ "$OC_HOURS" -lt 24 ]; }; then
+    echo "| 13 | OpenClaw recibe mensajes (24h) | last $OC_RECENT — captura activa | ✅ |"; pass=$((pass+1))
   else
-    echo "| 13 | OpenClaw recibe mensajes (24h) | $OC_RECENT — captura puede estar dormida | ⚠️ |"; fail=$((fail+1))
+    echo "| 13 | OpenClaw recibe mensajes (24h) | $OC_RECENT — captura puede estar dormida (>24h) | ⚠️ |"; fail=$((fail+1))
   fi
 
   echo ""
