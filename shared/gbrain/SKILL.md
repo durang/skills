@@ -31,6 +31,7 @@ Execute the runnable script that already exists at `~/.openclaw/skills/gbrain/ru
 
 ```bash
 bash ~/.openclaw/skills/gbrain/run.sh check                # full 17-layer dashboard + alert banner
+bash ~/.openclaw/skills/gbrain/run.sh verify               # lie-detector: re-check each claim vs ground truth
 bash ~/.openclaw/skills/gbrain/run.sh fix                  # auto-fix safe issues (idempotent)
 bash ~/.openclaw/skills/gbrain/run.sh news                 # only upstream releases/PRs/issues
 bash ~/.openclaw/skills/gbrain/run.sh bugs                 # only bugs that affect THIS user

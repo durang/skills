@@ -155,6 +155,7 @@ run_check() {
   echo "| Comando | Para qué |"
   echo "|---|---|"
   echo "| \`/gbrain\` o \`/gbrain check\` | Dashboard completo (esto que estás viendo) |"
+  echo "| \`/gbrain verify\` | 🔬 **Lie-detector** — re-checa cada claim contra ground truth (anti Jarvis-style) |"
   echo "| \`/gbrain manual\` | 📖 **Manual completo** con casos de uso. Si dudas qué correr, este |"
   echo "| \`/gbrain bootstrap\` | Verifica TODO el stack instalado correcto. Idempotente |"
   echo "| \`/gbrain custom-instructions\` (o \`ci\`) | Genera el bloque actualizado para claude.ai. Compara vs lo aplicado |"
@@ -318,12 +319,43 @@ except: print(0)" 2>/dev/null)
   echo ""
   echo "_¿Qué mido?_ Si el **gateway de OpenClaw** está respondiendo, si **Telegram** tiene conexión activa con \`api.telegram.org\`, qué **modelo LLM** está corriendo, y si los archivos canónicos (MCP gbrain registrado, SOUL.md con la directiva signal-detector) están en su lugar."
   echo ""
-  if openclaw gateway status 2>&1 | grep -q "Runtime: running" && ss -tlnp 2>/dev/null | grep -q ":18789"; then
-    GW="✅ running (port 18789 listening)"
+  # Gateway: trust openclaw native status. "Connectivity probe: ok" is ground truth.
+  # ss -tlnp without sudo doesn't see other-pid sockets reliably; relying on it caused false-down.
+  GW_RAW=$(openclaw gateway status 2>&1)
+  if echo "$GW_RAW" | grep -qE "Runtime: running" && echo "$GW_RAW" | grep -qE "Connectivity probe: ok"; then
+    GW_PORT=$(echo "$GW_RAW" | grep -oE "port=[0-9]+" | head -1 | cut -d= -f2)
+    GW="✅ running (port ${GW_PORT:-?} probe ok)"
+  elif echo "$GW_RAW" | grep -qE "Runtime: running"; then
+    GW="🟡 running but probe failed — run: openclaw gateway status"
   else
     GW="❌ down — run: openclaw gateway start"
   fi
-  TG=$(ss -tnp state established 2>/dev/null | grep -c "149.154.")
+  # Telegram conexiones: ss without sudo misses external conns of other PIDs. Parse /proc/net/tcp + resolve api.telegram.org IPs.
+  TG=$(python3 - <<'TGPY' 2>/dev/null
+import socket, os, glob
+try:
+    ips = {ai[4][0] for ai in socket.getaddrinfo("api.telegram.org", 443, socket.AF_INET)}
+except Exception:
+    ips = {"149.154.166.110", "149.154.167.220", "149.154.175.50"}
+def hx_ip(h):
+    return ".".join(str(int(h[i:i+2],16)) for i in (6,4,2,0))
+count = 0
+try:
+    with open("/proc/net/tcp") as f:
+        next(f)
+        for line in f:
+            parts = line.split()
+            if parts[3] != "01":  # ESTABLISHED
+                continue
+            rip, rport = parts[2].split(":")
+            if hx_ip(rip) in ips:
+                count += 1
+except Exception:
+    pass
+print(count)
+TGPY
+)
+  TG=${TG:-0}
   NPM=$(ps -ef | grep "npm install" | grep -v grep | wc -l)
   MCP=$(grep -c '"gbrain"' ~/.openclaw/openclaw.json 2>/dev/null)
   SOUL=$(grep -c "Signal detector on every inbound" ~/SOUL.md 2>/dev/null)
@@ -644,12 +676,38 @@ PY
   echo "| Service | Status | Port | Endpoint | Health |"
   echo "|---|---|---|---|---|"
   declare -A seen_svc
-  for svc_unit in /etc/systemd/system/*gbrain*.service /etc/systemd/system/*brain-http*.service /etc/systemd/system/*mcp*.service; do
+  declare -A svc_chosen_unit
+  declare -A svc_chosen_scope
+  # Pass 1: collect best state per service-name. Search both system-level AND user-level units.
+  # User-level often hosts the actually-active wrapper (linger=yes makes it boot-safe).
+  # If both exist, the active scope wins to avoid false "activating" from a stale duplicate.
+  for svc_unit in /etc/systemd/system/*gbrain*.service \
+                  /etc/systemd/system/*brain-http*.service \
+                  /etc/systemd/system/*mcp*.service \
+                  "$HOME"/.config/systemd/user/*gbrain*.service \
+                  "$HOME"/.config/systemd/user/*brain-http*.service \
+                  "$HOME"/.config/systemd/user/*mcp*.service; do
     [ ! -f "$svc_unit" ] && continue
-    svc_name=$(basename "$svc_unit" .service)
-    [ -n "${seen_svc[$svc_name]}" ] && continue
-    seen_svc[$svc_name]=1
-    svc_state=$(systemctl is-active "$svc_name" 2>/dev/null || echo "unknown")
+    nm=$(basename "$svc_unit" .service)
+    if [[ "$svc_unit" == *"/.config/systemd/user/"* ]]; then
+      st=$(systemctl --user is-active "$nm" 2>/dev/null || echo "unknown")
+      sc="user"
+    else
+      st=$(systemctl is-active "$nm" 2>/dev/null || echo "unknown")
+      sc="system"
+    fi
+    prev_state="${seen_svc[$nm]}"
+    if [ -z "$prev_state" ] || { [ "$prev_state" != "active" ] && [ "$st" = "active" ]; }; then
+      seen_svc[$nm]=$st
+      svc_chosen_unit[$nm]=$svc_unit
+      svc_chosen_scope[$nm]=$sc
+    fi
+  done
+  # Pass 2: render the chosen entries
+  for svc_name in "${!seen_svc[@]}"; do
+    svc_unit="${svc_chosen_unit[$svc_name]}"
+    svc_state="${seen_svc[$svc_name]}"
+    svc_scope="${svc_chosen_scope[$svc_name]}"
     case "$svc_state" in
       active)   icon="✅ active" ;;
       inactive) icon="⬜ inactive" ;;
@@ -1373,35 +1431,31 @@ Run /gbrain en Telegram para detalle.")
   HM_DEFAULT=$(grep -E "^  default:" "$HOME/.hermes/config.yaml" 2>/dev/null | head -1 | awk '{print $2}' || echo "?")
   HM_PROVIDER=$(awk '/^model:/{found=1; next} found && /^  provider:/{print $2; exit} /^[^ ]/{found=0}' "$HOME/.hermes/config.yaml" 2>/dev/null || echo "?")
   HM_BASEURL=$(grep -E "^  base_url:" "$HOME/.hermes/config.yaml" 2>/dev/null | head -1 | awk '{print $2}' || echo "?")
-  # Codex CLI auth status (parse auth.json directly — más confiable que codex CLI subshell)
+  # Codex CLI auth status — TRUST the CLI's own status output (it handles refresh transparently).
+  # Parsing access_token JWT exp alone is misleading: refresh_token keeps session alive even when JWT exp is in past.
   CODEX_AUTH_FILE=$([ -f "$HOME/.codex/auth.json" ] && echo "✅" || echo "❌")
-  CODEX_AUTH=$(python3 - <<'PY' 2>/dev/null
-import json, base64, os, datetime
+  CODEX_CLI_STATUS=$(codex login status 2>&1 | head -3)
+  if echo "$CODEX_CLI_STATUS" | grep -qiE "logged in"; then
+    CODEX_PLAN=$(python3 - <<'PY' 2>/dev/null
+import json, base64, os
 try:
-    p = os.path.expanduser("~/.codex/auth.json")
-    if not os.path.exists(p):
-        print("not installed"); raise SystemExit
-    data = json.load(open(p))
+    data = json.load(open(os.path.expanduser("~/.codex/auth.json")))
     tok = data.get("tokens", {}).get("access_token", "")
-    if not tok:
-        print("auth.json present but no access_token"); raise SystemExit
     parts = tok.split(".")
-    if len(parts) < 2:
-        print("malformed token"); raise SystemExit
     pad = parts[1] + "=" * (-len(parts[1]) % 4)
     claims = json.loads(base64.urlsafe_b64decode(pad).decode())
-    exp = claims.get("exp", 0)
-    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     plan = claims.get("https://api.openai.com/auth", {}).get("chatgpt_plan_type", "?")
-    if exp < now:
-        print(f"EXPIRED ({datetime.datetime.fromtimestamp(exp)}, plan={plan})")
-    else:
-        days_left = (exp - now) / 86400
-        print(f"Logged in using ChatGPT ({plan}, {days_left:.1f}d left)")
-except Exception as e:
-    print(f"check failed: {e}")
+    print(plan)
+except Exception:
+    print("?")
 PY
 )
+    CODEX_AUTH="Logged in using ChatGPT (plan=$CODEX_PLAN)"
+  elif [ -f "$HOME/.codex/auth.json" ]; then
+    CODEX_AUTH="auth.json present but CLI reports: $CODEX_CLI_STATUS"
+  else
+    CODEX_AUTH="not installed"
+  fi
   [ -z "$CODEX_AUTH" ] && CODEX_AUTH="unknown"
 
   # Alignment check: ¿OpenClaw + Hermes ambos usan codex? ¿el auth file está?
@@ -1641,8 +1695,144 @@ run_bugs() {
   echo "| #389 apply-migrations hangs on large brains | ⚠️ Possible if brain >5K pages | Use manual SQL |"
 }
 
+run_verify() {
+  # Lie-detector pattern — re-verify each critical claim against ground truth.
+  # If /gbrain check reports ❌/⚠️ for a service or auth state, this subcommand
+  # independently re-checks it. Catches false positives caused by stale heuristics
+  # (ss without sudo, wrong unit scope, JWT exp parsing, etc.).
+  echo "# 🔬 /gbrain verify — Lie-detector ground-truth pass"
+  echo ""
+  echo "_Cada claim del dashboard se re-verifica contra fuente de verdad independiente. Resultado: drift entre lo reportado y la realidad._"
+  echo ""
+  echo "| # | Claim | Ground truth | Status |"
+  echo "|---|---|---|---|"
+  local pass=0 fail=0
+
+  GW_RAW=$(openclaw gateway status 2>&1)
+  if echo "$GW_RAW" | grep -qE "Connectivity probe: ok"; then
+    echo "| 1 | Gateway up | \`openclaw gateway status\` → probe ok | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 1 | Gateway up | probe FAILED | ❌ |"; fail=$((fail+1))
+  fi
+
+  TG_COUNT=$(python3 - <<'PY' 2>/dev/null
+import socket
+try: ips = {ai[4][0] for ai in socket.getaddrinfo("api.telegram.org", 443, socket.AF_INET)}
+except: ips = {"149.154.166.110"}
+def h(s): return ".".join(str(int(s[i:i+2],16)) for i in (6,4,2,0))
+n=0
+try:
+  with open("/proc/net/tcp") as f:
+    next(f)
+    for line in f:
+      p=line.split()
+      if p[3]=="01" and h(p[2].split(":")[0]) in ips: n+=1
+except: pass
+print(n)
+PY
+)
+  TG_COUNT=${TG_COUNT:-0}
+  if [ "$TG_COUNT" -ge 1 ]; then
+    echo "| 2 | Telegram conectado | /proc/net/tcp → $TG_COUNT estab a api.telegram.org | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 2 | Telegram conectado | 0 estab — bot offline o usando webhook | ⚠️ |"; fail=$((fail+1))
+  fi
+
+  WRAP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:8787/health 2>/dev/null)
+  if [ "$WRAP_CODE" = "200" ]; then
+    echo "| 3 | Wrapper local (user-level) | curl /health → HTTP 200 | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 3 | Wrapper local (user-level) | HTTP $WRAP_CODE | ❌ |"; fail=$((fail+1))
+  fi
+
+  PUB_URL=$(grep -E "^WRAPPER_BASE_URL=" "$HOME/gbrain-http-wrapper/.env" 2>/dev/null | cut -d= -f2 | tr -d '"' | tr -d ' ')
+  if [ -n "$PUB_URL" ]; then
+    PUB_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "$PUB_URL/health" 2>/dev/null)
+    if [ "$PUB_CODE" = "200" ]; then
+      echo "| 4 | Wrapper public (Tailscale Funnel) | curl $PUB_URL/health → 200 | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 4 | Wrapper public (Tailscale Funnel) | HTTP $PUB_CODE | ❌ |"; fail=$((fail+1))
+    fi
+  fi
+
+  if codex login status 2>&1 | grep -qiE "logged in"; then
+    echo "| 5 | Codex CLI auth | \`codex login status\` → Logged in | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 5 | Codex CLI auth | NOT logged in | ❌ |"; fail=$((fail+1))
+  fi
+
+  STALE_STATE=$(systemctl is-active gbrain-http-wrapper.service 2>/dev/null)
+  if [ "$STALE_STATE" = "inactive" ] || [ "$STALE_STATE" = "not-found" ]; then
+    echo "| 6 | System-level wrapper detenido | systemctl status = $STALE_STATE | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 6 | System-level wrapper detenido | $STALE_STATE — restart loop? | ⚠️ |"; fail=$((fail+1))
+  fi
+
+  ULEV=$(systemctl --user is-enabled gbrain-http-wrapper 2>/dev/null)
+  LINGER=$(loginctl show-user ec2-user 2>/dev/null | grep "^Linger=" | cut -d= -f2)
+  if [ "$ULEV" = "enabled" ] && [ "$LINGER" = "yes" ]; then
+    echo "| 7 | User-wrapper autostart al boot | enabled + linger=yes | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 7 | User-wrapper autostart al boot | enabled=$ULEV linger=$LINGER | ⚠️ |"; fail=$((fail+1))
+  fi
+
+  MCP_BIN="$HOME/.bun/bin/gbrain"
+  if [ -x "$MCP_BIN" ]; then
+    echo "| 8 | MCP gbrain binary | $MCP_BIN executable | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 8 | MCP gbrain binary | MISSING o no executable | ❌ |"; fail=$((fail+1))
+  fi
+
+  if tmux ls 2>/dev/null | grep -q "hermes-gw"; then
+    HERMES_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:3000/health 2>/dev/null)
+    if [ "$HERMES_HTTP" = "200" ]; then
+      echo "| 9 | Hermes bridge | tmux + /health 200 | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 9 | Hermes bridge | tmux up, /health $HERMES_HTTP | ⚠️ |"; fail=$((fail+1))
+    fi
+  else
+    echo "| 9 | Hermes bridge | tmux session NOT running | ⚠️ |"; fail=$((fail+1))
+  fi
+
+  CRON_OK=$(python3 - <<'PY' 2>/dev/null
+import json, os
+try:
+    cfg = json.load(open(os.path.expanduser('~/.openclaw/cron/jobs.json')))
+    jobs = cfg.get('jobs', cfg) if isinstance(cfg, dict) else []
+    if isinstance(jobs, dict): jobs = list(jobs.values())
+    bad = []
+    for j in jobs:
+        if j.get('name') in ('AgentExpert', 'Physics Master'):
+            t = j.get('payload', {}).get('timeoutSeconds', 0)
+            if t < 1200: bad.append(f"{j['name']}={t}s")
+    print(",".join(bad) if bad else "ok")
+except Exception as e:
+    print(f"err:{e}")
+PY
+)
+  if [ "$CRON_OK" = "ok" ]; then
+    echo "| 10 | Crons largos con timeout ≥1200s | AgentExpert + Physics Master OK | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 10 | Crons largos con timeout ≥1200s | $CRON_OK | ⚠️ |"; fail=$((fail+1))
+  fi
+
+  echo ""
+  echo "---"
+  echo ""
+  TOTAL=$((pass+fail))
+  if [ "$fail" -eq 0 ]; then
+    echo "## ✅ Lie-detector: **$pass/$TOTAL** claims verificados — ground truth alineado con dashboard"
+  else
+    echo "## ⚠️ Lie-detector: **$pass/$TOTAL** OK, **$fail** drift detectado — revisa items con ⚠️/❌"
+  fi
+  echo ""
+  echo "_Cada vez que un claim de \`/gbrain check\` y este script disagreen, hay un bug de heurística en \`run.sh\` que arreglar. Filosofía: \"never claim done on request-shape alone\"._"
+  return $fail
+}
+
 case "$SUBCMD" in
   check|"") run_check ;;
+  verify|lie-detector) run_verify ;;
   fix) run_fix ;;
   news) run_news ;;
   bugs) run_bugs ;;
@@ -1981,5 +2171,5 @@ EOF
         ;;
     esac
     ;;
-  *) echo "Unknown subcommand: $SUBCMD"; echo "Use: check | fix | news | bugs | compare | save | bootstrap | principles | manifest | custom-instructions [--adaptive] | doctor | integrate <client> | compound"; exit 1 ;;
+  *) echo "Unknown subcommand: $SUBCMD"; echo "Use: check | verify | fix | news | bugs | compare | save | bootstrap | principles | manifest | custom-instructions [--adaptive] | doctor | integrate <client> | compound"; exit 1 ;;
 esac
