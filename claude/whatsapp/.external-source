@@ -1,0 +1,4 @@
+# External source pointer — canonical SKILL.md lives in whatsapp-monitor product repo.
+# install.sh reads the file at this path and deploys it as the skill loader.
+# No duplication, no pre-commit hook needed, no chance of drift.
+$HOME/whatsapp-monitor/SKILL.md

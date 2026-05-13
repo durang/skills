@@ -133,6 +133,45 @@ while IFS= read -r -d '' skill_md; do
   done
 done < <(find "$SCRIPT_DIR" -name SKILL.md -not -path '*/.git/*' -not -path '*/landing-gen/*' -not -path '*/lead-scraper/*' -print0)
 
+# ─── Phase 1b: External skills (.external-source pointer files) ─────
+# A skill directory can replace SKILL.md with a .external-source file containing
+# the absolute path to a SKILL.md that lives in another repo. Install.sh resolves
+# the path and deploys that SKILL.md as if it lived here. This avoids duplicating
+# SKILL.md across repos (e.g., whatsapp lives canonically in whatsapp-monitor).
+while IFS= read -r -d '' ext_marker; do
+  skill_dir=$(dirname "$ext_marker")
+  rel_skill_dir="${skill_dir#$SCRIPT_DIR/}"
+  # Read the external path (expand $HOME and other env vars)
+  external_path=$(envsubst < "$ext_marker" | grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$' | head -1)
+  if [ -z "$external_path" ] || [ ! -f "$external_path" ]; then
+    echo "  ⚠️  external skill $rel_skill_dir: source not found ($external_path) — skip"
+    continue
+  fi
+  # Targets: subfolder convention first, then distribute-to of external SKILL.md
+  targets=$(infer_target_from_path "$rel_skill_dir/SKILL.md")
+  [ -z "$targets" ] && targets=$(extract_distribute_to "$external_path")
+  if [ -z "$targets" ]; then
+    orphans+=("$rel_skill_dir (external, no targets)")
+    continue
+  fi
+  for t in $targets; do
+    skill_name=$(basename "$skill_dir")
+    case "$t" in
+      claude)   dest_dir="$CLAUDE_DIR/$skill_name" ;;
+      openclaw) dest_dir="$OPENCLAW_DIR/$skill_name" ;;
+      *)        echo "  ✗ unknown target: $t" >&2; continue ;;
+    esac
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  [dry-run] would copy $external_path → $dest_dir/SKILL.md"
+    else
+      mkdir -p "$dest_dir"
+      cp "$external_path" "$dest_dir/SKILL.md"
+      echo "  ✓ $skill_name → $t (external: $external_path)"
+    fi
+    applied=$((applied+1))
+  done
+done < <(find "$SCRIPT_DIR" -name .external-source -not -path '*/.git/*' -print0)
+
 echo ""
 echo "▶ Applied: $applied skill copies"
 
