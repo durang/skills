@@ -1816,6 +1816,50 @@ PY
     echo "| 10 | Crons largos con timeout ≥1200s | $CRON_OK | ⚠️ |"; fail=$((fail+1))
   fi
 
+  # 11. OpenClaw WhatsApp channel: running + connected (NOT mid-disconnect)
+  OC_WA_STATUS=$(openclaw channels status 2>/dev/null | grep -i "WhatsApp default" | head -1)
+  if echo "$OC_WA_STATUS" | grep -qE "running.*connected" && echo "$OC_WA_STATUS" | grep -q "health:healthy"; then
+    echo "| 11 | OpenClaw WhatsApp capturando | status=running, connected, healthy | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 11 | OpenClaw WhatsApp capturando | $(echo "$OC_WA_STATUS" | head -c 100)... — restart: systemctl --user restart openclaw-gateway | ❌ |"; fail=$((fail+1))
+  fi
+
+  # 12. OpenClaw is silent (no envía mensajes, no visto azul, no reacciones)
+  OC_SILENT=$(python3 - <<'PY' 2>/dev/null
+import json
+try:
+    cfg = json.load(open('/home/ec2-user/.openclaw/openclaw.json'))
+    wa = cfg['channels']['whatsapp']
+    issues = []
+    if wa.get('sendReadReceipts') is not False:
+        issues.append(f"sendReadReceipts={wa.get('sendReadReceipts')}")
+    if wa.get('reactionLevel') != 'off':
+        issues.append(f"reactionLevel={wa.get('reactionLevel')}")
+    if wa.get('autoReply') is True:
+        issues.append("autoReply=True")
+    if wa.get('respondToMentions') is True:
+        issues.append("respondToMentions=True")
+    if wa.get('typingIndicator') is True:
+        issues.append("typingIndicator=True")
+    print(",".join(issues) if issues else "silent")
+except Exception as e:
+    print(f"err:{e}")
+PY
+)
+  if [ "$OC_SILENT" = "silent" ]; then
+    echo "| 12 | OpenClaw silencio absoluto (no manda) | sendReadReceipts=false, reactionLevel=off, no autoReply | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 12 | OpenClaw silencio absoluto (no manda) | ⚠️ flags activos: $OC_SILENT | ❌ |"; fail=$((fail+1))
+  fi
+
+  # 13. OpenClaw captura reciente — al menos 1 mensaje en últimas 24h
+  OC_RECENT=$(openclaw channels status 2>/dev/null | grep -i "WhatsApp default" | grep -oE "in:[^,]+" | head -1)
+  if echo "$OC_RECENT" | grep -qE "in:[0-9]+m|in:[0-9]+s|in:[0-9]h ago"; then
+    echo "| 13 | OpenClaw recibe mensajes (24h) | last in $OC_RECENT — captura activa | ✅ |"; pass=$((pass+1))
+  else
+    echo "| 13 | OpenClaw recibe mensajes (24h) | $OC_RECENT — captura puede estar dormida | ⚠️ |"; fail=$((fail+1))
+  fi
+
   echo ""
   echo "---"
   echo ""
