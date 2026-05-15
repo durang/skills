@@ -1494,6 +1494,142 @@ PY
   echo "_Cuando cambies de modelo: edita el config, restart, y vuelve a correr \`/gbrain check\`. Layer 18b lo refleja sin tocar este skill._"
   echo ""
 
+  # ─── Layer 19 — AWS Infra Health (instance + account) ───
+  echo "## ☁️ Layer 19 — AWS Infra Health (instance + account)"
+  echo ""
+  echo "_¿Qué mido?_ Estado canónico de la EC2 + cuenta AWS contra la página \`stack/jarvis-v3\` en GBrain. 9 controles. Si algún control drifteo, banner rojo + entry en decision log. Detalle completo: \`gbrain get stack/jarvis-v3\`."
+  echo ""
+
+  AWS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null)
+  AWS_INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null)
+  AWS_REGION=$(curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null)
+
+  if [ -z "$AWS_INSTANCE_ID" ]; then
+    echo "_AWS Infra layer skipped — IMDS no responde (¿no es EC2?)._"
+    echo ""
+  else
+    AWS_PASS=0
+    AWS_FAIL=0
+    echo "_Instance:_ \`$AWS_INSTANCE_ID\` · region \`$AWS_REGION\`"
+    echo ""
+    echo "| # | Control | Estado | Detalle |"
+    echo "|---|---|---|---|"
+
+    # 1. AWS CLI not running as root
+    AWS_ARN=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)
+    if echo "$AWS_ARN" | grep -qE ":root$"; then
+      echo "| 1 | AWS CLI no usa root | ❌ | \`$AWS_ARN\` — rotar a IAM user con MFA (#1 pendiente) |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 AWS root keys activas — \`~/.aws/credentials\` apunta a root user. Rotar a IAM user con MFA YA.")
+    else
+      echo "| 1 | AWS CLI no usa root | ✅ | $AWS_ARN |"
+      AWS_PASS=$((AWS_PASS+1))
+    fi
+
+    # 2. CloudTrail logging
+    CT_LOGGING=$(aws cloudtrail describe-trails --region "$AWS_REGION" --query 'trailList[0].Name' --output text 2>/dev/null)
+    if [ -n "$CT_LOGGING" ] && [ "$CT_LOGGING" != "None" ]; then
+      CT_STATUS=$(aws cloudtrail get-trail-status --name "$CT_LOGGING" --region "$AWS_REGION" --query 'IsLogging' --output text 2>/dev/null)
+      if [ "$CT_STATUS" = "True" ]; then
+        echo "| 2 | CloudTrail logging | ✅ | trail \`$CT_LOGGING\` is_logging=true |"
+        AWS_PASS=$((AWS_PASS+1))
+      else
+        echo "| 2 | CloudTrail logging | ⚠️ | trail existe pero is_logging=$CT_STATUS |"
+        AWS_FAIL=$((AWS_FAIL+1))
+      fi
+    else
+      echo "| 2 | CloudTrail logging | ❌ | sin trails configurados |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 CloudTrail OFF — sin logging de API calls.")
+    fi
+
+    # 3. GuardDuty active
+    GD_DETECTORS=$(aws guardduty list-detectors --region "$AWS_REGION" --query 'DetectorIds' --output text 2>/dev/null)
+    if [ -n "$GD_DETECTORS" ] && [ "$GD_DETECTORS" != "None" ]; then
+      echo "| 3 | GuardDuty activo | ✅ | detector(es): $GD_DETECTORS |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 3 | GuardDuty activo | ❌ | sin detectors |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 GuardDuty OFF — sin threat detection.")
+    fi
+
+    # 4. AWS Budget configured
+    AWS_ACCOUNT=$(echo "$AWS_ARN" | cut -d: -f5)
+    BUDGET_COUNT=$(aws budgets describe-budgets --account-id "$AWS_ACCOUNT" --query 'length(Budgets)' --output text 2>/dev/null)
+    if [ -n "$BUDGET_COUNT" ] && [ "$BUDGET_COUNT" != "None" ] && [ "$BUDGET_COUNT" -ge 1 ] 2>/dev/null; then
+      echo "| 4 | AWS Budget alertas | ✅ | $BUDGET_COUNT budget(s) configurado(s) |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 4 | AWS Budget alertas | ❌ | sin budgets |"
+      AWS_FAIL=$((AWS_FAIL+1))
+    fi
+
+    # 5. DLM snapshot policy
+    DLM_COUNT=$(aws dlm get-lifecycle-policies --region "$AWS_REGION" --query "length(Policies[?State=='ENABLED'])" --output text 2>/dev/null)
+    if [ -n "$DLM_COUNT" ] && [ "$DLM_COUNT" != "None" ] && [ "$DLM_COUNT" -ge 1 ] 2>/dev/null; then
+      echo "| 5 | DLM snapshot daily | ✅ | $DLM_COUNT policy(ies) ENABLED |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 5 | DLM snapshot daily | ❌ | sin policies — riesgo de pérdida de datos |"
+      AWS_FAIL=$((AWS_FAIL+1))
+    fi
+
+    # 6. Security Group canonical (no public ports beyond intentional)
+    SG_NAME=$(curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN" http://169.254.169.254/latest/meta-data/security-groups 2>/dev/null)
+    SG_PUBLIC=$(aws ec2 describe-security-groups --group-names "$SG_NAME" --region "$AWS_REGION" --query 'SecurityGroups[0].IpPermissions[?IpRanges[?CidrIp==`0.0.0.0/0`]].FromPort' --output text 2>/dev/null)
+    # Lista permitida públicamente: 3333 (Clawdex platform — intencional)
+    SG_UNEXPECTED=$(echo "$SG_PUBLIC" | tr '\t' '\n' | grep -vE "^(3333)$" | grep -v "^$" | tr '\n' ',' | sed 's/,$//')
+    if [ -z "$SG_UNEXPECTED" ]; then
+      echo "| 6 | SG sin puertos públicos no-canon | ✅ | sólo 3333 público (Clawdex intencional) |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 6 | SG sin puertos públicos no-canon | ❌ | puertos públicos no esperados: $SG_UNEXPECTED |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 SG drift — puertos públicos no canónicos: $SG_UNEXPECTED")
+    fi
+
+    # 7. EBS encryption
+    EBS_ENC=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values=$AWS_INSTANCE_ID" --region "$AWS_REGION" --query 'Volumes[0].Encrypted' --output text 2>/dev/null)
+    if [ "$EBS_ENC" = "True" ]; then
+      echo "| 7 | EBS root encrypted | ✅ | Encrypted=True |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 7 | EBS root encrypted | ❌ | Encrypted=$EBS_ENC — pendiente (#2) |"
+      AWS_FAIL=$((AWS_FAIL+1))
+    fi
+
+    # 8. IMDSv2 enforced
+    IMDS_V1=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://169.254.169.254/latest/meta-data/ 2>/dev/null)
+    if [ "$IMDS_V1" = "401" ]; then
+      echo "| 8 | IMDSv2 forzado | ✅ | IMDSv1 retorna 401 |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 8 | IMDSv2 forzado | ⚠️ | IMDSv1 retorna $IMDS_V1 — debería ser 401 |"
+      AWS_FAIL=$((AWS_FAIL+1))
+    fi
+
+    # 9. GBrain stack page existe
+    if gbrain get stack/jarvis-v3 2>/dev/null | grep -q "stack/jarvis-v3"; then
+      echo "| 9 | GBrain page \`stack/jarvis-v3\` | ✅ | fuente de verdad presente |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 9 | GBrain page \`stack/jarvis-v3\` | ❌ | crear con \`gbrain put stack/jarvis-v3\` |"
+      AWS_FAIL=$((AWS_FAIL+1))
+    fi
+
+    echo ""
+    AWS_TOTAL=$((AWS_PASS+AWS_FAIL))
+    if [ "$AWS_FAIL" -eq 0 ]; then
+      echo "**Score:** ✅ **$AWS_PASS/$AWS_TOTAL** — stack canónico, sin drift."
+    else
+      echo "**Score:** 🔴 **$AWS_PASS/$AWS_TOTAL** — $AWS_FAIL control(es) pendiente(s)."
+    fi
+    echo ""
+    echo "_Fuente de verdad detallada (decision log + roadmap):_ \`gbrain get stack/jarvis-v3\`"
+    echo ""
+  fi
+
   # ─── Verdict + Quick actions ───
   echo "## 🎯 Veredicto + acciones"
   echo ""
@@ -1860,6 +1996,78 @@ PY
     echo "| 13 | OpenClaw recibe mensajes (24h) | last $OC_RECENT — captura activa | ✅ |"; pass=$((pass+1))
   else
     echo "| 13 | OpenClaw recibe mensajes (24h) | $OC_RECENT — captura puede estar dormida (>24h) | ⚠️ |"; fail=$((fail+1))
+  fi
+
+  # 14-22: AWS Infra Health (paralelo a Layer 19)
+  AWS_TOKEN_V=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60" 2>/dev/null)
+  AWS_INSTANCE_V=$(curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN_V" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null)
+  AWS_REGION_V=$(curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN_V" http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null)
+  if [ -n "$AWS_INSTANCE_V" ]; then
+    AWS_ARN_V=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null)
+    if echo "$AWS_ARN_V" | grep -qE ":root$"; then
+      echo "| 14 | AWS CLI no usa root keys | \`$AWS_ARN_V\` | ❌ |"; fail=$((fail+1))
+    else
+      echo "| 14 | AWS CLI no usa root keys | \`$AWS_ARN_V\` | ✅ |"; pass=$((pass+1))
+    fi
+
+    CT_NAME_V=$(aws cloudtrail describe-trails --region "$AWS_REGION_V" --query 'trailList[0].Name' --output text 2>/dev/null)
+    CT_LOG_V=$([ -n "$CT_NAME_V" ] && [ "$CT_NAME_V" != "None" ] && aws cloudtrail get-trail-status --name "$CT_NAME_V" --region "$AWS_REGION_V" --query 'IsLogging' --output text 2>/dev/null)
+    if [ "$CT_LOG_V" = "True" ]; then
+      echo "| 15 | CloudTrail logging activo | trail=$CT_NAME_V is_logging=true | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 15 | CloudTrail logging activo | sin trails o is_logging=false | ❌ |"; fail=$((fail+1))
+    fi
+
+    GD_V=$(aws guardduty list-detectors --region "$AWS_REGION_V" --query 'DetectorIds[0]' --output text 2>/dev/null)
+    if [ -n "$GD_V" ] && [ "$GD_V" != "None" ]; then
+      echo "| 16 | GuardDuty detector activo | detector $GD_V | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 16 | GuardDuty detector activo | sin detectors | ❌ |"; fail=$((fail+1))
+    fi
+
+    AWS_ACCT_V=$(echo "$AWS_ARN_V" | cut -d: -f5)
+    BUD_V=$(aws budgets describe-budgets --account-id "$AWS_ACCT_V" --query 'length(Budgets)' --output text 2>/dev/null)
+    if [ -n "$BUD_V" ] && [ "$BUD_V" != "None" ] && [ "$BUD_V" -ge 1 ] 2>/dev/null; then
+      echo "| 17 | AWS Budget configurado | $BUD_V budget(s) | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 17 | AWS Budget configurado | sin budgets | ❌ |"; fail=$((fail+1))
+    fi
+
+    DLM_V=$(aws dlm get-lifecycle-policies --region "$AWS_REGION_V" --query "length(Policies[?State=='ENABLED'])" --output text 2>/dev/null)
+    if [ -n "$DLM_V" ] && [ "$DLM_V" != "None" ] && [ "$DLM_V" -ge 1 ] 2>/dev/null; then
+      echo "| 18 | DLM snapshot policy ENABLED | $DLM_V policy(ies) | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 18 | DLM snapshot policy ENABLED | sin policies | ❌ |"; fail=$((fail+1))
+    fi
+
+    SG_NAME_V=$(curl -s -H "X-aws-ec2-metadata-token: $AWS_TOKEN_V" http://169.254.169.254/latest/meta-data/security-groups 2>/dev/null)
+    SG_PUB_V=$(aws ec2 describe-security-groups --group-names "$SG_NAME_V" --region "$AWS_REGION_V" --query 'SecurityGroups[0].IpPermissions[?IpRanges[?CidrIp==`0.0.0.0/0`]].FromPort' --output text 2>/dev/null)
+    SG_UNEXPECTED_V=$(echo "$SG_PUB_V" | tr '\t' '\n' | grep -vE "^(3333)$" | grep -v "^$" | tr '\n' ',' | sed 's/,$//')
+    if [ -z "$SG_UNEXPECTED_V" ]; then
+      echo "| 19 | SG canonical (solo 3333 público) | sin puertos extra abiertos | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 19 | SG canonical (solo 3333 público) | puertos no-canon: $SG_UNEXPECTED_V | ❌ |"; fail=$((fail+1))
+    fi
+
+    EBS_V=$(aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values=$AWS_INSTANCE_V" --region "$AWS_REGION_V" --query 'Volumes[0].Encrypted' --output text 2>/dev/null)
+    if [ "$EBS_V" = "True" ]; then
+      echo "| 20 | EBS root encrypted | Encrypted=True | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 20 | EBS root encrypted | Encrypted=$EBS_V | ❌ |"; fail=$((fail+1))
+    fi
+
+    IMDS_V_TEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 http://169.254.169.254/latest/meta-data/ 2>/dev/null)
+    if [ "$IMDS_V_TEST" = "401" ]; then
+      echo "| 21 | IMDSv2 forzado | IMDSv1 retorna 401 | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 21 | IMDSv2 forzado | IMDSv1 retorna $IMDS_V_TEST | ⚠️ |"; fail=$((fail+1))
+    fi
+
+    if gbrain get stack/jarvis-v3 2>/dev/null | grep -q "stack/jarvis-v3"; then
+      echo "| 22 | GBrain stack/jarvis-v3 page existe | fuente de verdad presente | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 22 | GBrain stack/jarvis-v3 page existe | falta crear | ❌ |"; fail=$((fail+1))
+    fi
   fi
 
   echo ""

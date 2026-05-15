@@ -1,6 +1,6 @@
 ---
 name: gbrain
-description: "GBrain CENTRAL ORCHESTRATOR — 17-layer health dashboard + 7th-phase compounding engine + upstream features watch + skill propagation. THIS skill is source of truth for the GBrain stack: when upstream gbrain/openclaw releases new features (voice, zoom, dream synthesize, etc.), Layer 17 surfaces them as informational and tells which satellite skills (brain-write-macro, signal-detector, gbrain-http-wrapper) are affected. Subcomandos: /gbrain check (default), /gbrain fix, /gbrain news, /gbrain bugs, /gbrain compare, /gbrain save, /gbrain compound, /gbrain bootstrap, /gbrain principles, /gbrain manifest, /gbrain manual, /gbrain custom-instructions. Triggers: /gbrain, revisa gbrain, salud del brain, verifica el brain, gbrain status."
+description: "GBrain CENTRAL ORCHESTRATOR — 19-layer health dashboard (incl. AWS infra) + 7th-phase compounding engine + upstream features watch + skill propagation. THIS skill is source of truth for the GBrain stack: when upstream gbrain/openclaw releases new features (voice, zoom, dream synthesize, etc.), Layer 17 surfaces them as informational and tells which satellite skills (brain-write-macro, signal-detector, gbrain-http-wrapper) are affected. Subcomandos: /gbrain check (default), /gbrain fix, /gbrain news, /gbrain bugs, /gbrain compare, /gbrain save, /gbrain compound, /gbrain bootstrap, /gbrain principles, /gbrain manifest, /gbrain manual, /gbrain custom-instructions. Triggers: /gbrain, revisa gbrain, salud del brain, verifica el brain, gbrain status."
 allowed-tools: Bash Read Write
 user-invocable: true
 distribute-to: [claude, openclaw]
@@ -30,7 +30,7 @@ When upstream gbrain or openclaw changes anything, propagation flows from this s
 Execute the runnable script that already exists at `~/.openclaw/skills/gbrain/run.sh`. It supports subcommands:
 
 ```bash
-bash ~/.openclaw/skills/gbrain/run.sh check                # full 17-layer dashboard + alert banner
+bash ~/.openclaw/skills/gbrain/run.sh check                # full 19-layer dashboard + alert banner
 bash ~/.openclaw/skills/gbrain/run.sh verify               # lie-detector: re-check each claim vs ground truth
 bash ~/.openclaw/skills/gbrain/run.sh fix                  # auto-fix safe issues (idempotent)
 bash ~/.openclaw/skills/gbrain/run.sh news                 # only upstream releases/PRs/issues
@@ -63,9 +63,9 @@ The script outputs Markdown directly. Stream that output as-is — no reformat u
 - `openclaw gateway status` returns "not running" → `openclaw gateway start`
 - `psql` connection fails → check `~/.gbrain/config.json` has valid `database_url`
 
-## 17-layer surface (what each layer does)
+## 19-layer surface (what each layer does)
 
-- 🚨 **Alert banner** (top, only when critical): stuck sessions >0, openclaw-node sin API keys, model sin fallbacks, queue depth >100, public Tailscale Funnel TLS desync
+- 🚨 **Alert banner** (top, only when critical): stuck sessions >0, openclaw-node sin API keys, model sin fallbacks, queue depth >100, public Tailscale Funnel TLS desync, AWS infra drift
 - L1 Versiones (gbrain + openclaw vs latest)
 - L2 Runtime (gateway, telegram conns, npm loops, modelo primario + fallbacks, MCP, SOUL)
 - L3 Doctor (gbrain doctor structured)
@@ -84,8 +84,11 @@ The script outputs Markdown directly. Stream that output as-is — no reformat u
 - L14 Cron failure rate 24h
 - L15 Upstream changelog
 - L16 Upgrade Decision Engine (INSTALAR/ESPERAR/SKIP per tool)
-- **L17 Upstream Features Watch** (NEW) — tweet-style feature surface + skill propagation rules
-- **L17b Skill propagation** (NEW) — concrete propagation hints per satellite skill
+- L17 Upstream Features Watch — tweet-style feature surface + skill propagation rules
+- L17b Skill propagation — concrete propagation hints per satellite skill
+- L18 Clientes MCP gbrain + custom-instructions adoption
+- L18b Modelo activo cross-runtime (live read)
+- **L19 AWS Infra Health** (NEW) — 9 controles (CloudTrail, GuardDuty, Budget, DLM, SG, EBS, IMDSv2, root keys, GBrain stack/jarvis-v3 page) + alert si drift
 
 ## Files
 
