@@ -1618,6 +1618,27 @@ PY
       AWS_FAIL=$((AWS_FAIL+1))
     fi
 
+    # 10. sergio-admin MFA activo
+    MFA_COUNT=$(aws iam list-mfa-devices --user-name sergio-admin --query 'length(MFADevices)' --output text 2>/dev/null)
+    if [ "$MFA_COUNT" -ge 1 ] 2>/dev/null; then
+      echo "| 10 | sergio-admin tiene MFA activo | ✅ | virtual MFA enabled |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 10 | sergio-admin tiene MFA activo | ❌ | habilitar (CRÍTICO) |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 sergio-admin sin MFA — habilitar inmediatamente")
+    fi
+
+    # 11. Root user MFA activo
+    if [ "$(aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled' --output text 2>/dev/null)" = "1" ]; then
+      echo "| 11 | Root user tiene MFA activo | ✅ | account summary = 1 |"
+      AWS_PASS=$((AWS_PASS+1))
+    else
+      echo "| 11 | Root user tiene MFA activo | ❌ | habilitar via console (CRÍTICO) |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 Root user sin MFA — habilitar via consola YA")
+    fi
+
     echo ""
     AWS_TOTAL=$((AWS_PASS+AWS_FAIL))
     if [ "$AWS_FAIL" -eq 0 ]; then
@@ -2067,6 +2088,23 @@ PY
       echo "| 22 | GBrain stack/jarvis-v3 page existe | fuente de verdad presente | ✅ |"; pass=$((pass+1))
     else
       echo "| 22 | GBrain stack/jarvis-v3 page existe | falta crear | ❌ |"; fail=$((fail+1))
+    fi
+
+    # 23. sergio-admin MFA activo
+    MFA_V=$(aws iam list-mfa-devices --user-name sergio-admin --query 'length(MFADevices)' --output text 2>/dev/null)
+    if [ "$MFA_V" -ge 1 ] 2>/dev/null; then
+      MFA_DATE=$(aws iam list-mfa-devices --user-name sergio-admin --query 'MFADevices[0].EnableDate' --output text 2>/dev/null)
+      echo "| 23 | sergio-admin tiene MFA activo | enabled $MFA_DATE | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 23 | sergio-admin tiene MFA activo | SIN MFA — habilitar | ❌ |"; fail=$((fail+1))
+    fi
+
+    # 24. Root user MFA activo
+    ROOT_MFA=$(aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled' --output text 2>/dev/null)
+    if [ "$ROOT_MFA" = "1" ]; then
+      echo "| 24 | Root user tiene MFA activo | account summary = 1 | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 24 | Root user tiene MFA activo | $ROOT_MFA — riesgo crítico | ❌ |"; fail=$((fail+1))
     fi
   fi
 
