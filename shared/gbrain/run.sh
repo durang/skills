@@ -2299,10 +2299,149 @@ run_sync() {
   fi
 }
 
+run_upgrade() {
+  # Orquestador SEGURO para binarios (hermes + gbrain CLI).
+  # Riesgo medio — incluye backup + patch verify + SOUL.md restore + bridge restart.
+  echo "# 🆙 /gbrain upgrade — Orquestador de binarios (Hermes + GBrain CLI)"
+  echo ""
+  echo "_Actualiza el binario de Hermes (912 commits potenciales) preservando patches locales y SOUL.md canonical._"
+  echo ""
+
+  local CANONICAL_SOUL="$HOME/.hermes/canonical/SOUL.md"
+  local upgrade_pass=0 upgrade_fail=0
+
+  # 1. Hermes update check
+  echo "## 1. Hermes — ¿hay update disponible?"
+  echo ""
+  local HERMES_BEHIND=$("$HOME/.local/bin/hermes" update --check 2>&1 | grep -oE "[0-9]+ commits behind" | grep -oE "^[0-9]+")
+  if [ -z "$HERMES_BEHIND" ] || [ "$HERMES_BEHIND" = "0" ]; then
+    echo "✅ Hermes al día. Skip update."
+  else
+    echo "⚠️ Hermes $HERMES_BEHIND commits behind origin/main"
+    echo ""
+
+    # 2. Backup completo ANTES
+    echo "## 2. Backup pre-upgrade"
+    echo ""
+    local BACKUP_NAME="hermes-pre-upgrade-$(date +%Y%m%d-%H%M%S).zip"
+    "$HOME/.local/bin/hermes" backup -o "$HOME/backups/$BACKUP_NAME" 2>&1 | tail -3
+    if [ -f "$HOME/backups/$BACKUP_NAME" ]; then
+      echo "✅ Backup: $HOME/backups/$BACKUP_NAME ($(du -h $HOME/backups/$BACKUP_NAME | cut -f1))"
+      upgrade_pass=$((upgrade_pass+1))
+    else
+      echo "❌ Backup falló — ABORT (no avanzar sin backup)"
+      return 1
+    fi
+    echo ""
+
+    # 3. Snapshot patches actuales (para verificar después)
+    echo "## 3. Snapshot patches actuales"
+    echo ""
+    local PATCHES_BEFORE=$(python3 "$HOME/whatsapp-monitor/bin/check-patches.py" 2>&1 | grep -c "OK")
+    echo "Patches aplicados pre-upgrade: $PATCHES_BEFORE/4"
+    echo ""
+
+    # 4. Pre-upgrade SOUL.md
+    local SOUL_BEFORE=$(md5sum "$HOME/.hermes/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+
+    # 5. Stop bridge graceful (para que update no encuentre proceso vivo)
+    echo "## 4. Stop bridge"
+    echo ""
+    tmux kill-session -t hermes-gw 2>/dev/null
+    pkill -f "scripts/whatsapp-bridge" 2>/dev/null
+    sleep 3
+    echo "✅ Bridge stopped"
+    echo ""
+
+    # 6. RUN UPDATE
+    echo "## 5. Running hermes update --backup --yes"
+    echo ""
+    "$HOME/.local/bin/hermes" update --backup --yes 2>&1 | tail -10
+    echo ""
+
+    # 7. Verify patches
+    echo "## 6. Verify local patches"
+    echo ""
+    local PATCHES_AFTER=$(python3 "$HOME/whatsapp-monitor/bin/check-patches.py" 2>&1 | grep -c "OK")
+    if [ "$PATCHES_AFTER" -eq "$PATCHES_BEFORE" ]; then
+      echo "✅ Todos los patches preservados ($PATCHES_AFTER/4)"
+      upgrade_pass=$((upgrade_pass+1))
+    else
+      echo "⚠️ Patches perdidos: tenías $PATCHES_BEFORE, ahora $PATCHES_AFTER"
+      echo "   Detalle:"
+      python3 "$HOME/whatsapp-monitor/bin/check-patches.py" 2>&1 | grep -E "MISSING|❌" | head -5
+      upgrade_fail=$((upgrade_fail+1))
+    fi
+    echo ""
+
+    # 8. Restore SOUL.md from canonical
+    echo "## 7. SOUL.md canonical guard"
+    echo ""
+    local SOUL_AFTER=$(md5sum "$HOME/.hermes/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+    local CANONICAL_MD5=$(md5sum "$CANONICAL_SOUL" 2>/dev/null | cut -d' ' -f1)
+    if [ "$SOUL_AFTER" = "$CANONICAL_MD5" ]; then
+      echo "✅ SOUL.md intacto ($SOUL_AFTER)"
+    else
+      cp "$CANONICAL_SOUL" "$HOME/.hermes/SOUL.md"
+      echo "✅ SOUL.md restaurado desde canonical ($CANONICAL_MD5)"
+    fi
+    echo ""
+
+    # 9. Restart bridge
+    echo "## 8. Restart bridge"
+    echo ""
+    tmux new-session -d -s hermes-gw "HERMES_HOME=$HOME/.hermes $HOME/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run > /tmp/hermes-gw.log 2>&1"
+    sleep 25
+    local BRIDGE_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:3000/health 2>/dev/null)
+    if [ "$BRIDGE_HEALTH" = "200" ]; then
+      echo "✅ Bridge alive (HTTP 200)"
+      upgrade_pass=$((upgrade_pass+1))
+    else
+      echo "⚠️ Bridge HTTP $BRIDGE_HEALTH — revisar /tmp/hermes-gw.log"
+      upgrade_fail=$((upgrade_fail+1))
+    fi
+    echo ""
+
+    # 10. Hermes versión nueva
+    echo "## 9. Versión post-update"
+    echo ""
+    "$HOME/.local/bin/hermes" --version 2>&1 | head -1
+    echo ""
+  fi
+
+  # 11. GBrain CLI status (no auto-upgrade — requiere merge manual del fork)
+  echo "## 10. GBrain CLI status (manual upgrade)"
+  echo ""
+  if [ -d "$HOME/gbrain/.git" ]; then
+    cd "$HOME/gbrain" 2>/dev/null
+    git fetch upstream --quiet 2>/dev/null
+    local GBRAIN_BEHIND=$(git rev-list HEAD..upstream/master --count 2>/dev/null)
+    local GBRAIN_AHEAD=$(git rev-list upstream/master..HEAD --count 2>/dev/null)
+    echo "Tu fork (durang/gbrain): $GBRAIN_AHEAD commits propios, $GBRAIN_BEHIND commits behind upstream"
+    if [ "$GBRAIN_BEHIND" -gt 0 ]; then
+      echo "⚠️ Upgrade manual: cd ~/gbrain && git merge upstream/master (resolve conflicts manualmente)"
+      echo "   Tu fork tiene $GBRAIN_AHEAD commits propios — NO automatizable sin riesgo."
+    else
+      echo "✅ GBrain CLI fork al día"
+    fi
+  fi
+  echo ""
+
+  echo "---"
+  echo "**Resumen:** $upgrade_pass operaciones exitosas, $upgrade_fail fallos."
+  if [ "$upgrade_fail" -gt 0 ]; then
+    echo "🔴 Hubo fallos — backup en $HOME/backups/, revisa logs."
+    return 1
+  fi
+  echo "🟢 Upgrade canonical completado."
+  return 0
+}
+
 case "$SUBCMD" in
   check|"") run_check ;;
   verify|lie-detector) run_verify ;;
   sync) run_sync ;;
+  upgrade) run_upgrade ;;
   fix) run_fix ;;
   news) run_news ;;
   bugs) run_bugs ;;
