@@ -482,7 +482,17 @@ except Exception as e:
     HERMES_PROVIDER=$(grep "provider:" $HOME/.hermes/config.yaml 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
     HERMES_SKILLS=$(ls $HOME/.hermes/skills/ 2>/dev/null | wc -l)
     HERMES_IMPORTED=$(ls $HOME/.hermes/skills/openclaw-imports/ 2>/dev/null | wc -l)
-    HERMES_GATEWAY=$($HOME/.local/bin/hermes gateway status 2>&1 | grep -iE "running|stopped" | head -1 | head -c 50)
+    # Canonical: Hermes corre via tmux (no systemd). Check tmux primero, fallback a hermes status.
+    if tmux ls 2>/dev/null | grep -q "hermes-gw"; then
+      HERMES_BRIDGE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:3000/health 2>/dev/null)
+      if [ "$HERMES_BRIDGE_CODE" = "200" ]; then
+        HERMES_GATEWAY="✅ running (tmux hermes-gw + bridge :3000 healthy)"
+      else
+        HERMES_GATEWAY="⚠️ tmux up but bridge HTTP $HERMES_BRIDGE_CODE"
+      fi
+    else
+      HERMES_GATEWAY="✗ tmux hermes-gw NOT running — re-create with: tmux new-session -d -s hermes-gw 'HERMES_HOME=~/.hermes ~/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run > /tmp/hermes-gw.log 2>&1'"
+    fi
     HERMES_BOT=$(grep "^TELEGRAM_BOT_TOKEN" $HOME/.hermes/.env 2>/dev/null | head -1 | head -c 30 | sed 's/=.*/=***/')
     OPENCLAW_BOT_HASH=$(python3 -c "import json,hashlib;d=json.load(open('$HOME/.openclaw/openclaw.json'));t=d.get('channels',{}).get('telegram',{}).get('botToken','');print(hashlib.sha256(t.encode()).hexdigest()[:8] if t else '')" 2>/dev/null)
     HERMES_BOT_HASH=$(grep "^TELEGRAM_BOT_TOKEN" $HOME/.hermes/.env 2>/dev/null | sed 's/^TELEGRAM_BOT_TOKEN=//' | head -1 | python3 -c "import sys,hashlib;t=sys.stdin.read().strip();print(hashlib.sha256(t.encode()).hexdigest()[:8] if t else '')" 2>/dev/null)
