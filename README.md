@@ -1,10 +1,23 @@
 # skills — durang's canonical skills monorepo
 
-> One source of truth for my Claude Code + OpenClaw skills.
-> Auto-classified, sync via git, integrated to `/gbrain` dashboard.
-> Companion to [gbrain-http-wrapper](https://github.com/durang/gbrain-http-wrapper),
-> [gbrain-skill](https://github.com/durang/gbrain-skill),
-> [brain-write-macro](https://github.com/durang/brain-write-macro).
+> **Canonical source of truth** for my Claude Code + OpenClaw + HERMES skills.
+> One repo, one install, orchestrated by `/gbrain sync`.
+>
+> Companion to [gbrain-http-wrapper](https://github.com/durang/gbrain-http-wrapper)
+> and [whatsapp-monitor](https://github.com/durang/whatsapp-monitor).
+>
+> _Note: [gbrain-skill](https://github.com/durang/gbrain-skill) was archived 2026-05-17 — its content lives in `shared/gbrain/` here._
+
+## Highlight skills
+
+| Skill | Purpose | Trigger |
+|-------|---------|---------|
+| **[gbrain](shared/gbrain/)** | Canonical health dashboard + orchestrator. 19 layers + Layer 19 AWS Infra + `/gbrain sync` updates everything. | `/gbrain`, `/gbrain sync`, `/gbrain verify` |
+| **[whatsapp](shared/whatsapp/)** | WhatsApp dual-agent dashboard (OpenClaw + Hermes), default-deny security, SEGURIDAD BLINDADA. | `/whatsapp` |
+| **[openclawtrack](claude/openclawtrack/)** | OpenClaw full infrastructure scan + visual dashboard | `/openclawtrack` |
+| **[hermestrack](claude/hermestrack/)** | HERMES agent dashboard + skills + cron + sessions | `/hermestrack` |
+| **[openclaw-security](claude/openclaw-security/)** | Security hardening checklist for EC2 OpenClaw installs | `/openclaw-security` |
+| **[openclawcontinue](claude/openclawcontinue/)** | OpenClaw optimizer — actionable improvements with priority | `/openclawcontinue` |
 
 ## Structure
 
