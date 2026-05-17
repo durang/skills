@@ -1628,6 +1628,21 @@ PY
       AWS_FAIL=$((AWS_FAIL+1))
     fi
 
+    # ─── SOUL.md canonical guard (anti-migrate-overwrite) ───
+    SOUL_LIVE=$(md5sum "$HOME/.hermes/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+    SOUL_CANON=$(md5sum "$HOME/.hermes/canonical/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$SOUL_CANON" ] && [ "$SOUL_LIVE" = "$SOUL_CANON" ]; then
+      echo "| 12 | SOUL.md canonical (anti-migrate guard) | md5 alineado | ✅ |"
+      AWS_PASS=$((AWS_PASS+1))
+    elif [ -z "$SOUL_CANON" ]; then
+      echo "| 12 | SOUL.md canonical (anti-migrate guard) | sin canonical (run /gbrain sync) | ⚠️ |"
+      AWS_FAIL=$((AWS_FAIL+1))
+    else
+      echo "| 12 | SOUL.md canonical (anti-migrate guard) | DRIFT — corre /gbrain sync para auto-restore | ❌ |"
+      AWS_FAIL=$((AWS_FAIL+1))
+      ALERTS+=("🔴 SOUL.md drift detected — corre /gbrain sync para restaurar desde canonical")
+    fi
+
     # 10. sergio-admin MFA activo
     MFA_COUNT=$(aws iam list-mfa-devices --user-name sergio-admin --query 'length(MFADevices)' --output text 2>/dev/null)
     if [ "$MFA_COUNT" -ge 1 ] 2>/dev/null; then
@@ -2100,6 +2115,15 @@ PY
       echo "| 22 | GBrain stack/jarvis-v3 page existe | falta crear | ❌ |"; fail=$((fail+1))
     fi
 
+    # 25. SOUL.md canonical guard
+    SOUL_L_V=$(md5sum "$HOME/.hermes/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+    SOUL_C_V=$(md5sum "$HOME/.hermes/canonical/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+    if [ -n "$SOUL_C_V" ] && [ "$SOUL_L_V" = "$SOUL_C_V" ]; then
+      echo "| 25 | SOUL.md canonical (anti-migrate overwrite) | md5 alineado | ✅ |"; pass=$((pass+1))
+    else
+      echo "| 25 | SOUL.md canonical (anti-migrate overwrite) | DRIFT o sin canonical — /gbrain sync | ❌ |"; fail=$((fail+1))
+    fi
+
     # 23. sergio-admin MFA activo
     MFA_V=$(aws iam list-mfa-devices --user-name sergio-admin --query 'length(MFADevices)' --output text 2>/dev/null)
     if [ "$MFA_V" -ge 1 ] 2>/dev/null; then
@@ -2132,9 +2156,153 @@ PY
   return $fail
 }
 
+run_sync() {
+  # Orquestador canónico: actualiza TODO el stack sin romper nada.
+  # Skills monorepo → install.sh → HERMES migrate → SOUL.md auto-restore → verify md5.
+  echo "# 🔄 /gbrain sync — Orquestador canónico"
+  echo ""
+  echo "_Actualiza skills en TODOS los runtimes (OpenClaw + HERMES + Claude Code) desde monorepo._"
+  echo "_Idempotente. Backups automáticos. Auto-restora SOUL.md si migrate lo sobrescribe._"
+  echo ""
+
+  local synced=0 failed=0
+  local CANONICAL_SOUL="$HOME/.hermes/canonical/SOUL.md"
+
+  # 1. Backup SOUL.md ANTES de cualquier cosa (defensive)
+  if [ ! -f "$CANONICAL_SOUL" ]; then
+    mkdir -p "$HOME/.hermes/canonical"
+    cp "$HOME/.hermes/SOUL.md" "$CANONICAL_SOUL"
+    chmod 444 "$CANONICAL_SOUL"
+    echo "✅ Canonical SOUL.md creado (protected read-only)"
+  fi
+  SOUL_BEFORE=$(md5sum "$HOME/.hermes/SOUL.md" | cut -d' ' -f1)
+
+  # 2. Pull monorepo skills (force, descarta cambios locales — el source es github)
+  echo "## 1. Sincronizar monorepo skills"
+  echo ""
+  if [ -d "$HOME/skills/.git" ]; then
+    cd "$HOME/skills" 2>/dev/null
+    BEFORE_SHA=$(git rev-parse HEAD 2>/dev/null | head -c 7)
+    git fetch origin --quiet 2>/dev/null
+    BEHIND=$(git rev-list HEAD..origin/master --count 2>/dev/null)
+    if [ "$BEHIND" -gt 0 ] 2>/dev/null; then
+      git pull --rebase origin master 2>&1 | tail -3
+      AFTER_SHA=$(git rev-parse HEAD 2>/dev/null | head -c 7)
+      echo "✅ Skills monorepo: $BEFORE_SHA → $AFTER_SHA ($BEHIND commits)"
+      synced=$((synced+1))
+    else
+      echo "✅ Skills monorepo: al día ($BEFORE_SHA)"
+    fi
+  else
+    echo "⚠️ ~/skills/.git no encontrado — instalar monorepo primero"
+    failed=$((failed+1))
+  fi
+  echo ""
+
+  # 3. Re-run install.sh (deploys monorepo → claude + openclaw + hermes targets)
+  echo "## 2. Deploy skills (install.sh)"
+  echo ""
+  if [ -f "$HOME/skills/install.sh" ]; then
+    bash "$HOME/skills/install.sh" 2>&1 | tail -5
+    echo "✅ Skills desplegadas a targets canónicos"
+    synced=$((synced+1))
+  else
+    echo "⚠️ install.sh no encontrado"
+    failed=$((failed+1))
+  fi
+  echo ""
+
+  # 4. HERMES claw migrate (safe: --skill-conflict overwrite, NEVER secrets)
+  echo "## 3. HERMES claw migrate (refresh skills + config, NO secrets)"
+  echo ""
+  if [ -x "$HOME/.local/bin/hermes" ]; then
+    "$HOME/.local/bin/hermes" claw migrate --overwrite --skill-conflict overwrite --yes 2>&1 | tail -5
+    echo "✅ HERMES skills refreshed desde OpenClaw"
+    synced=$((synced+1))
+  else
+    echo "⚠️ hermes CLI no encontrado"
+  fi
+  echo ""
+
+  # 5. CRITICAL: Auto-restore SOUL.md si migrate lo cambió
+  echo "## 4. Validar SOUL.md canonical"
+  echo ""
+  SOUL_AFTER=$(md5sum "$HOME/.hermes/SOUL.md" | cut -d' ' -f1)
+  CANONICAL_MD5=$(md5sum "$CANONICAL_SOUL" 2>/dev/null | cut -d' ' -f1)
+  if [ "$SOUL_AFTER" != "$CANONICAL_MD5" ]; then
+    echo "⚠️ SOUL.md cambió tras migrate ($SOUL_BEFORE → $SOUL_AFTER)"
+    echo "   Restaurando desde canonical ($CANONICAL_MD5)..."
+    cp "$CANONICAL_SOUL" "$HOME/.hermes/SOUL.md"
+    echo "✅ SOUL.md restaurado: $(md5sum $HOME/.hermes/SOUL.md | cut -d' ' -f1)"
+    synced=$((synced+1))
+  else
+    echo "✅ SOUL.md íntegro ($SOUL_AFTER)"
+  fi
+  echo ""
+
+  # 6. Verify md5 sums críticos (helper: pick run.sh or SKILL.md, return hash only)
+  _md5() { local f="$1"; [ -f "$f" ] && md5sum "$f" | awk '{print $1}'; }
+  _skill_md5() {
+    local base="$1" skill="$2"
+    local h
+    h=$(_md5 "$base/$skill/run.sh"); [ -n "$h" ] && { echo "$h"; return; }
+    h=$(_md5 "$base/$skill/SKILL.md"); echo "$h"
+  }
+  echo "## 5. Verificar md5 cross-runtime"
+  echo ""
+  echo "| Skill | Source | OpenClaw | Claude Code | Match |"
+  echo "|---|---|---|---|---|"
+  local total_match=0 total_check=0
+  for skill in gbrain whatsapp openclawtrack hermestrack; do
+    total_check=$((total_check+1))
+    # Source: probar shared/ primero (donde van los que tienen run.sh), luego claude/
+    # Special case: whatsapp usa .external-source apuntando a whatsapp-monitor/SKILL.md
+    if [ "$skill" = "whatsapp" ]; then
+      src=$(_md5 "$HOME/whatsapp-monitor/SKILL.md")
+    else
+      src=$(_skill_md5 "$HOME/skills/shared" "$skill")
+      [ -z "$src" ] && src=$(_skill_md5 "$HOME/skills/claude" "$skill")
+    fi
+    oc=$(_skill_md5 "$HOME/.openclaw/skills" "$skill")
+    cc=$(_skill_md5 "$HOME/.claude/skills" "$skill")
+
+    # Algunas skills NO se deployan a openclaw (solo claude) — skip si está vacío
+    expect_oc="yes"
+    case "$skill" in openclawtrack|hermestrack|openclawcontinue|openclaw-security) expect_oc="no" ;; esac
+
+    if [ "$expect_oc" = "no" ]; then
+      # Solo comparar src vs claude
+      if [ -n "$src" ] && [ "$src" = "$cc" ]; then
+        echo "| $skill | ${src:0:8} | n/a | ${cc:0:8} | ✅ |"
+        total_match=$((total_match+1))
+      else
+        echo "| $skill | ${src:0:8} | n/a | ${cc:0:8} | ⚠️ drift |"
+      fi
+    else
+      if [ -n "$src" ] && [ "$src" = "$oc" ] && [ "$src" = "$cc" ]; then
+        echo "| $skill | ${src:0:8} | ✓ | ✓ | ✅ |"
+        total_match=$((total_match+1))
+      else
+        echo "| $skill | ${src:0:8} | ${oc:0:8} | ${cc:0:8} | ⚠️ drift |"
+      fi
+    fi
+  done
+  echo ""
+  echo "**Sync sumario:** $synced operaciones aplicadas, $failed fallos, $total_match/$total_check skills md5-aligned."
+  echo ""
+  if [ "$failed" -gt 0 ]; then
+    echo "🔴 Hay fallos — revisa output arriba."
+    return 1
+  else
+    echo "🟢 Stack canónico al día."
+    return 0
+  fi
+}
+
 case "$SUBCMD" in
   check|"") run_check ;;
   verify|lie-detector) run_verify ;;
+  sync) run_sync ;;
   fix) run_fix ;;
   news) run_news ;;
   bugs) run_bugs ;;
