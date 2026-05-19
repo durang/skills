@@ -16,9 +16,63 @@
 
 ---
 
-## 🚀 Instalación — los 5 pasos exactos
+## 📦 Dos modos — usa el que necesites
 
-**Estás en una compu nueva (Mac / Linux).** Ejecútalos en orden:
+| Modo | Cuándo usarlo | Qué hace | Dónde lo corres |
+|---|---|---|---|
+| 🖥️ **SERVIDOR** — [`bootstrap.sh`](#-modo-servidor-bootstrap-de-un-ec2-nuevo) | Tienes un **EC2 NUEVO** (recién lanzado) que vas a usar como host de Claude Code | Hardening + Claude Code + auto-patches OS + tmux + history audit + IMDSv2 verify | **EN el EC2** (vía SSM Session Manager o SSH) |
+| 💻 **CLIENTE** — [`/ec2-remote-access`](#-modo-cliente-conectar-tu-compu-al-ec2-los-5-pasos) | Tienes una **compu nueva** (Mac/Linux/iPad) que quieres usar como ventana al EC2 | Instala Tailscale + SSH key + aliases `ec2-tmux` | **EN tu compu cliente** |
+
+> Si vas a montar UN nuevo EC2 desde cero: corre Modo SERVIDOR primero (en el EC2), luego Modo CLIENTE (en tu Mac). Es la combinación canonical.
+
+---
+
+## 🖥️ Modo SERVIDOR: bootstrap de un EC2 nuevo
+
+**Cuándo:** acabas de lanzar un EC2 (Amazon Linux 2023, Ubuntu, Debian, RHEL) y quieres dejarlo robusto + listo para Claude Code en una sola corrida.
+
+**Cómo:** conecta a tu EC2 vía SSM Session Manager (lo más seguro — no necesita SSH abierto) o SSH. Una vez dentro, corre:
+
+```bash
+# Recomendado: switch a ec2-user primero (no ssm-user)
+sudo su - ec2-user
+
+# Bootstrap
+curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/bootstrap.sh | bash
+```
+
+**Lo que hace en 6 pasos idempotentes:**
+
+| #  | Paso                                              | Detalle                                                     |
+|----|----|-|
+| 1  | Updates system packages                           | `dnf upgrade` / `apt upgrade` — baseline limpio              |
+| 2  | Instala utilidades base                           | `tmux`, `git`, `jq`, `curl`, `dnf-automatic`/`unattended-upgrades` |
+| 3  | **Auto-security-patches**                         | Activa el timer/service para que parches críticos se instalen solos en background |
+| 4  | Configura shell                                   | PATH persistente (`~/.local/bin`) + history audit (`HISTTIMEFORMAT`, `HISTSIZE`, append) |
+| 5  | Instala Claude Code                               | Con su propio auto-updater incluido                          |
+| 6  | Verifica IMDSv2                                   | Confirma que el endpoint v2 responde y v1 se rechaza         |
+
+**Después del bootstrap:**
+
+```bash
+# 1. Autenticate Claude (URL en browser → paste code back)
+claude
+
+# 2. Persistencia diaria con tmux
+tmux new -s claude
+claude
+# Ctrl+B luego D para detach (Claude sigue corriendo)
+# tmux attach -t claude para volver
+```
+
+> **Soporta:** Amazon Linux 2023, RHEL/CentOS/Fedora/Rocky/Alma, Ubuntu/Debian.
+> **Idempotente:** safe re-correr; nunca borra config, solo añade.
+
+---
+
+## 💻 Modo CLIENTE: conectar tu compu al EC2 (los 5 pasos)
+
+**Cuándo:** ya tienes un EC2 funcionando (configurado por ti, por un compañero, o con el Modo SERVIDOR arriba) y quieres usarlo desde una **máquina nueva** (Mac/Linux/Windows-WSL).
 
 ### 1️⃣ Instalar Claude Code en esta máquina
 
