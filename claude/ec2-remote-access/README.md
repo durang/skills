@@ -2,43 +2,144 @@
 
 # 🛰️ /ec2-remote-access
 
-### **Convierte cualquier máquina en una ventana a tu Claude Code remoto en EC2.**
+### **Convierte cualquier máquina en una ventana a tu Claude Code corriendo en EC2.**
 
 [![Skill](https://img.shields.io/badge/skill-claude_code-blue?style=flat-square)](#)
 [![Transport](https://img.shields.io/badge/transport-SSH_+_Tailscale-success?style=flat-square)](#)
 [![Persistence](https://img.shields.io/badge/persistence-tmux-orange?style=flat-square)](#)
-[![Setup](https://img.shields.io/badge/setup-9_pasos-brightgreen?style=flat-square)](#)
+[![Setup](https://img.shields.io/badge/setup-3_minutos-brightgreen?style=flat-square)](#)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE)
 
-**Una compu nueva. Tres minutos. Un comando para siempre: `ec2-tmux`.**
+**3 minutos. 5 comandos. Después: `ec2-tmux` desde cualquier terminal — Claude Code remoto persistente.**
 
 </div>
 
 ---
 
-## ✨ Qué hace
+## 🚀 Instalación — los 5 pasos exactos
 
-Te abre Claude Code corriendo en tu EC2 — con todo tu stack (GBrain, OpenClaw, Hermes, MCPs, secrets) — desde **cualquier máquina nueva**, sin re-instalar nada del stack.
+**Estás en una compu nueva (Mac / Linux).** Ejecútalos en orden:
+
+### 1️⃣ Instalar Claude Code en esta máquina
 
 ```bash
-# En máquina nueva, después de configurar (1 sola vez):
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+Verifica:
+
+```bash
+claude --version
+# → 2.1.144 (Claude Code)  ← o versión similar
+```
+
+> Alternativa GUI: descarga la app .dmg desde **https://claude.ai/code**
+
+---
+
+### 2️⃣ Autenticar Claude Code
+
+```bash
+claude
+```
+
+Te abre el navegador → login con tu cuenta Anthropic → vuelves al terminal autenticado.
+Sal con `Ctrl+D` (o `/exit`) y pasa al Paso 3.
+
+---
+
+### 3️⃣ Instalar el skill `/ec2-remote-access`
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/install.sh | bash
+```
+
+Output esperado:
+
+```
+▶ Installing /ec2-remote-access skill
+  Target: ~/.claude/skills/ec2-remote-access
+  → SKILL.md
+  → README.md
+
+✅ Installed.
+```
+
+---
+
+### 4️⃣ Abrir Claude Code
+
+```bash
+claude
+```
+
+---
+
+### 5️⃣ Invocar el skill — dentro de Claude
+
+```
+/ec2-remote-access
+```
+
+El skill te pregunta 4 datos:
+
+```
+1. ¿OS de esta máquina?     (Mac / Linux / Windows-WSL)
+2. ¿Hostname Tailscale del EC2?  (ej: jarvis-v3, mi-servidor)
+3. ¿Usuario SSH del EC2?    (default: ec2-user)
+4. ¿Home dir del EC2?       (default: /home/ec2-user)
+```
+
+Y te guía paso a paso (Tailscale, SSH key, aliases) verificando cada paso. Al terminar tienes 7 aliases listos:
+
+```bash
+ec2-tmux       # ⭐ sesión Claude Code remota PERSISTENTE (sobrevive cierres de laptop / WiFi)
+ec2            # sesión nueva (no persistente)
+ec2-continue   # retomar última sesión
+ec2-resume     # menú de sesiones previas
+ec2-shell      # solo terminal del EC2 (sin Claude)
+ec2-tmux-2/3   # sesiones tmux paralelas
+```
+
+---
+
+## ⚡ Los 5 comandos en orden (copy-paste ready)
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash                                                # 1. instalar Claude Code
+claude                                                                                         # 2. authenticate (login browser) — sal con Ctrl+D
+curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/install.sh | bash # 3. instalar skill
+claude                                                                                         # 4. abrir Claude Code
+# Dentro de Claude:                                                                            # 5. invocar skill
+/ec2-remote-access
+```
+
+---
+
+## ✨ Qué hace
+
+Te abre Claude Code corriendo en tu EC2 — con todo tu stack (memoria, agentes, MCPs, secrets) — desde **cualquier máquina nueva**, sin re-instalar nada del stack.
+
+```bash
+# Después del setup, desde cualquier terminal:
 $ ec2-tmux
 
 # Te aparece esto, igual que si estuvieras enfrente del EC2:
 Claude Code 2.1.144
-🧠 GBrain conectado (4,000+ pages)
-📡 OpenClaw + Hermes + MCPs ready
+🧠 Tu stack canonical conectado
+📡 Tus MCPs ready
 >
 ```
 
-**Antes:** abrías terminal, recordabas `ssh ec2-user@100.117.155.74 -i ~/.ssh/blah.pem`, esperabas password, manualmente cargabas `claude`, y si se caía el WiFi perdías todo el contexto.
+**Antes:** abrías terminal, recordabas IP, esperabas password, manualmente cargabas `claude`, y si se caía el WiFi perdías todo el contexto.
 
-**Después:** tecleas `ec2-tmux` y estás dentro. Caes WiFi, regresas, mismo comando, mismo estado.
+**Después:** tecleas `ec2-tmux` y estás dentro. Cierra laptop / cae WiFi → regresas, mismo comando, mismo estado exacto.
 
 ---
 
 ## 🤯 Por qué importa
 
-Si tu cerebro vive en un EC2 (GBrain + agentes), tu acceso a él no puede depender de "qué máquina tengo enfrente". Necesitas que **cualquier teclado** sea una puerta a tu agente.
+Si tu cerebro vive en un EC2 (memoria + agentes + MCPs), tu acceso a él no puede depender de "qué máquina tengo enfrente". Necesitas que **cualquier teclado** sea una puerta a tu agente.
 
 | Problema antes                                      | Después                            |
 |------------------------------------------------------|------------------------------------|
@@ -50,26 +151,7 @@ Si tu cerebro vive en un EC2 (GBrain + agentes), tu acceso a él no puede depend
 
 ---
 
-## 🚀 Uso
-
-```bash
-# 1) Clona tu monorepo de skills en la máquina nueva (1 sola vez por máquina):
-git clone https://github.com/durang/skills ~/skills
-cd ~/skills && ./install.sh
-
-# 2) Abre Claude Code en la máquina nueva
-claude
-
-# 3) Tecleas:
-/ec2-remote-access
-
-# Y el skill te guía paso a paso. Al final tienes:
-ec2-tmux   # ← un solo comando para abrir Claude remoto persistente
-```
-
----
-
-## 🎯 Lo que el skill hace por ti (9 pasos automatizados)
+## 🎯 Lo que el skill hace por ti (9 pasos verificados)
 
 | #  | Paso                                  | Lo hace por ti                                          |
 |----|---------------------------------------|---------------------------------------------------------|
@@ -86,19 +168,6 @@ ec2-tmux   # ← un solo comando para abrir Claude remoto persistente
 
 ---
 
-## 🛠️ Aliases que crea
-
-| Comando         | Para qué                                                       |
-|-----------------|----------------------------------------------------------------|
-| `ec2`           | Sesión Claude Code remota nueva                                |
-| `ec2-tmux` ⭐    | Sesión persistente — sobrevive cierres de laptop / WiFi caído  |
-| `ec2-continue`  | Retomar la sesión más reciente                                 |
-| `ec2-resume`    | Menú de todas las sesiones previas                             |
-| `ec2-shell`     | Solo terminal del EC2 (sin Claude)                             |
-| `ec2-tmux-2/3`  | Sesiones tmux paralelas independientes                         |
-
----
-
 ## 🧠 Diagrama mental
 
 ```
@@ -106,11 +175,11 @@ ec2-tmux   # ← un solo comando para abrir Claude remoto persistente
 │  CUALQUIER máquina nueva   │  ──(Tailscale)──▶  │  Tu EC2 (canonical home del stack)│
 │  Mac · Linux · Windows/WSL │                     │                                  │
 │                            │                     │  • Claude Code corre AQUÍ        │
-│  Solo tiene:               │                     │  • GBrain database conectada     │
-│  • Terminal                │                     │  • OpenClaw + Hermes activos     │
+│  Solo tiene:               │                     │  • Tu memoria persistente        │
+│  • Terminal                │                     │  • Tus agentes activos           │
 │  • Tailscale               │                     │  • Todos tus MCPs registrados    │
-│  • SSH key autorizada      │                     │  • Tu memoria persistente        │
-│  • 7 aliases               │                     │  • Tu compound engine             │
+│  • SSH key autorizada      │                     │  • Tus tools y secrets           │
+│  • 7 aliases               │                     │  • Tus sesiones previas          │
 └────────────────────────────┘                     └──────────────────────────────────┘
 ```
 
@@ -144,20 +213,50 @@ El skill tiene branching automático para los 6 errores más comunes:
 
 ---
 
-## 🔗 Skills relacionados
-
-- 🧠 [/gbrain](../../shared/gbrain/) — orchestrator del stack completo (este skill se complementa con él)
-- 🛡️ [/openclaw-security](../openclaw-security/) — hardening del EC2 (corre ANTES de exponer el SSH)
-
----
-
 ## 💡 Casos de uso reales
 
-1. **Compré una MacBook nueva** → instalo Claude Code + clono skills + `/ec2-remote-access` → 3 min después estoy dentro de mi agente con todo el contexto
+1. **Compré una MacBook nueva** → instalo Claude Code + curl install → 3 min después estoy dentro de mi agente con todo el contexto
 2. **iPad en una cafetería** → Termius + Tailscale + `ec2-tmux` → mismo Claude Code que en casa
 3. **Mi mac actual se mojó con café** → cualquier máquina prestada me sirve mientras envío la mía a reparar
 4. **Quiero 3 sesiones paralelas trabajando en cosas distintas** → `ec2-tmux`, `ec2-tmux-2`, `ec2-tmux-3` en 3 terminals
-5. **Estoy programando con un colaborador remoto** → ambos `ec2-tmux` a la misma sesión = pair programming literal sobre el mismo Claude
+5. **Pair programming remoto** → ambos `ec2-tmux` a la misma sesión = literalmente sobre el mismo Claude
+
+---
+
+## 🗑️ Desinstalar
+
+```bash
+# Borrar el skill
+rm -rf ~/.claude/skills/ec2-remote-access
+
+# Opcional: limpiar config persistente
+rm -rf ~/.config/ec2-remote-access
+
+# Opcional: quitar los aliases (edita ~/.zshrc o ~/.bashrc y borra el bloque
+# entre "─── Claude Code remoto en ..." y la última línea de ec2-tmux-3)
+```
+
+---
+
+## 📦 Estructura del repo
+
+```
+ec2-remote-access/
+├── SKILL.md      ← El skill (lo lee Claude Code y guía al usuario)
+├── README.md     ← Este archivo
+├── install.sh    ← Instalador 1-línea (curl | bash)
+└── LICENSE       ← MIT
+```
+
+Solo 3 archivos. Sin dependencias. Sin contaminar otros skills.
+
+---
+
+## 🔗 Relacionado
+
+Este skill es parte de mi stack canonical, vivido en el monorepo público [`durang/skills`](https://github.com/durang/skills) — pero también vive aquí como standalone para que puedas instalarlo SOLO si es lo único que necesitas.
+
+Si te interesa el resto del stack (orquestador GBrain, dashboard WhatsApp dual-agent, security hardening de OpenClaw, etc.), el monorepo está abierto en MIT.
 
 ---
 
@@ -165,6 +264,6 @@ El skill tiene branching automático para los 6 errores más comunes:
 
 **Construido por [@durang](https://github.com/durang).** MIT licensed.
 
-_Si tu cerebro vive en la nube, tu acceso debería ser ubiquo._ 🛰️
+_Si tu cerebro vive en la nube, tu acceso debería ser ubicuo._ 🛰️
 
 </div>
