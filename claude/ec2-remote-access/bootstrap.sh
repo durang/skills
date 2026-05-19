@@ -195,10 +195,10 @@ else
 fi
 echo ""
 
-# ─── [7/7] Install systemd Remote Control service (THE key piece) ──────────────────────────────────────
+# ─── [7/8] Install systemd Remote Control service (THE key piece) ──────────────────────────────────────
 # This makes a "<HOSTNAME>-Permanent" session appear PINNED in Claude Code Desktop.
 # Without this, you only have SSH/tmux access — not the native Claude Code remote session.
-echo "▶ [7/7] Installing Claude Code Remote Control systemd service"
+echo "▶ [7/8] Installing Claude Code Remote Control systemd service"
 
 # Resolve Claude Code's entrypoint — supports BOTH layouts:
 #   Layout A (newer, single-binary):  ~/.local/bin/claude  (ELF binary symlink)
@@ -294,6 +294,61 @@ EOF
 fi
 echo ""
 
+# ─── [8/8] Pre-trust home dir so service auto-starts without prompt ──────────────────────────────────────
+# Without this, Claude shows "Do you trust this folder?" on every restart, and the
+# service blocks waiting for Enter — turning Restart=always into Restart=never.
+echo "▶ [8/8] Pre-trusting workspace in ~/.claude.json (prevents trust dialog on restart)"
+if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PYEOF'
+import json
+from pathlib import Path
+
+path = Path.home() / ".claude.json"
+try:
+    data = json.loads(path.read_text()) if path.exists() else {}
+except json.JSONDecodeError:
+    print("  ⚠️  ~/.claude.json exists but is invalid JSON — skipping pre-trust")
+    raise SystemExit(0)
+
+home = str(Path.home())
+projects = data.setdefault("projects", {})
+proj = projects.setdefault(home, {})
+
+changed = False
+for key in ("hasTrustDialogAccepted", "hasCompletedProjectOnboarding"):
+    if not proj.get(key):
+        proj[key] = True
+        changed = True
+# Some Claude versions also check this top-level flag
+if not data.get("hasTrustDialogAccepted"):
+    data["hasTrustDialogAccepted"] = True
+    changed = True
+
+if path.exists() or changed:
+    if not path.exists():
+        path.touch(mode=0o600)
+    path.write_text(json.dumps(data, indent=2))
+    path.chmod(0o600)
+    print(f"  ✅ Pre-trusted {home} in {path}" if changed else f"  ⚪ Already trusted {home}")
+else:
+    print("  ⚪ ~/.claude.json doesn't exist yet — will be created on first `claude` run")
+PYEOF
+
+    # Restart service so it picks up the trust state (only if service exists and is enabled)
+    if systemctl --user is-enabled --quiet claude-remote.service 2>/dev/null; then
+        systemctl --user restart claude-remote.service 2>/dev/null && \
+            echo "  ✅ Restarted claude-remote.service to apply trust"
+        sleep 2
+        if systemctl --user is-active --quiet claude-remote.service; then
+            echo "  ✅ Service active after restart"
+        fi
+    fi
+else
+    echo "  ⚠️  python3 not available — can't auto-pre-trust. Manual fix:"
+    echo "     Edit ~/.claude.json and set hasTrustDialogAccepted: true under projects[\"$HOME\"]"
+fi
+echo ""
+
 # ─── Done ──────────────────────────────────────
 echo "════════════════════════════════════════════════════════════"
 echo "✅ EC2 bootstrap complete"
@@ -306,6 +361,7 @@ echo "  ✓ PATH + history audit in ~/.bashrc"
 echo "  ✓ Claude Code installed (auto-updating)"
 echo "  ✓ IMDSv2 enforced (metadata security)"
 echo "  ✓ Remote Control systemd service (persistent across reboots)"
+echo "  ✓ Workspace pre-trusted (no prompt on service restart)"
 echo ""
 echo "📋 Next steps:"
 echo ""
