@@ -177,8 +177,8 @@ else
 fi
 echo ""
 
-# ─── [6/6] Verify IMDSv2 enforcement ──────────────────────────────────────
-echo "▶ [6/6] Verifying IMDSv2 enforcement (EC2 metadata service)"
+# ─── [6/7] Verify IMDSv2 enforcement ──────────────────────────────────────
+echo "▶ [6/7] Verifying IMDSv2 enforcement (EC2 metadata service)"
 TOKEN="$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" \
     -H "X-aws-ec2-metadata-token-ttl-seconds: 60" -m 2 2>/dev/null || true)"
 if [ -n "$TOKEN" ]; then
@@ -195,34 +195,122 @@ else
 fi
 echo ""
 
+# ─── [7/7] Install systemd Remote Control service (THE key piece) ──────────────────────────────────────
+# This makes a "<HOSTNAME>-Permanent" session appear PINNED in Claude Code Desktop.
+# Without this, you only have SSH/tmux access — not the native Claude Code remote session.
+echo "▶ [7/7] Installing Claude Code Remote Control systemd service"
+
+# Resolve Claude Code's internal entrypoint dynamically
+CLAUDE_EXE=""
+if command -v node >/dev/null 2>&1; then
+    CLAUDE_EXE="$(node -e "try { console.log(require('path').dirname(require.resolve('@anthropic-ai/claude-code/package.json')) + '/bin/claude.exe') } catch(e) {}" 2>/dev/null || true)"
+fi
+# Fallback: search common paths
+if [ -z "$CLAUDE_EXE" ] || [ ! -f "$CLAUDE_EXE" ]; then
+    CLAUDE_EXE="$(find "$HOME/.local" /usr/local /opt -name "claude.exe" -path "*claude-code/bin/*" 2>/dev/null | head -1)"
+fi
+
+if [ -z "$CLAUDE_EXE" ] || [ ! -f "$CLAUDE_EXE" ]; then
+    echo "  ⚠️  Couldn't locate claude.exe — skipping Remote Control service"
+    echo "     You can install it later by running this bootstrap again after authenticating Claude."
+else
+    echo "  Found claude.exe: $CLAUDE_EXE"
+
+    # Pick a session name — env var override OR hostname-derived default
+    REMOTE_NAME="${REMOTE_CONTROL_NAME:-$(hostname -s | tr '[:lower:]' '[:upper:]')-Permanent}"
+    echo "  Session name:   $REMOTE_NAME"
+
+    SERVICE_DIR="$HOME/.config/systemd/user"
+    SERVICE_FILE="$SERVICE_DIR/claude-remote.service"
+    mkdir -p "$SERVICE_DIR"
+
+    # PATH for the service env — include common dirs where claude/node may live
+    SERVICE_PATH="$HOME/.bun/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    # Include fnm node if present
+    FNM_BIN="$(ls -d "$HOME/.local/share/fnm/node-versions/"*/installation/bin 2>/dev/null | head -1)"
+    [ -n "$FNM_BIN" ] && SERVICE_PATH="$FNM_BIN:$SERVICE_PATH"
+
+    cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Claude Code Headless (persistent Remote Control)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/usr/bin/tmux new-session -d -s claude-remote -x 200 -y 50 ${CLAUDE_EXE} --remote-control ${REMOTE_NAME}
+ExecStop=/usr/bin/tmux kill-session -t claude-remote
+Restart=always
+RestartSec=15
+Environment=HOME=${HOME}
+Environment=PATH=${SERVICE_PATH}
+
+[Install]
+WantedBy=default.target
+EOF
+    echo "  ✅ Wrote $SERVICE_FILE"
+
+    # Enable linger so the service survives user logout
+    if ! loginctl show-user "$(whoami)" 2>/dev/null | grep -q "Linger=yes"; then
+        sudo loginctl enable-linger "$(whoami)" 2>/dev/null || true
+        echo "  ✅ Enabled linger for $(whoami) (service survives logout)"
+    else
+        echo "  ⚪ Linger already enabled for $(whoami)"
+    fi
+
+    # Reload and start the service
+    systemctl --user daemon-reload 2>/dev/null || true
+    if systemctl --user enable --now claude-remote.service 2>/dev/null; then
+        sleep 2
+        if systemctl --user is-active --quiet claude-remote.service; then
+            echo "  ✅ Service active — \"$REMOTE_NAME\" is now running"
+        else
+            echo "  ⚠️  Service installed but not active yet. Check:"
+            echo "       systemctl --user status claude-remote.service"
+            echo "     Most common cause: Claude Code isn't authenticated yet."
+            echo "     Run \`claude\` once interactively to log in, then:"
+            echo "       systemctl --user restart claude-remote.service"
+        fi
+    else
+        echo "  ⚠️  Couldn't enable/start the service. Check:"
+        echo "       systemctl --user status claude-remote.service"
+    fi
+fi
+echo ""
+
 # ─── Done ──────────────────────────────────────
 echo "════════════════════════════════════════════════════════════"
 echo "✅ EC2 bootstrap complete"
 echo "════════════════════════════════════════════════════════════"
 echo ""
+echo "📋 What just happened — your EC2 now has:"
+echo "  ✓ Auto-security-patches (dnf-automatic / unattended-upgrades)"
+echo "  ✓ tmux, git, jq installed"
+echo "  ✓ PATH + history audit in ~/.bashrc"
+echo "  ✓ Claude Code installed (auto-updating)"
+echo "  ✓ IMDSv2 enforced (metadata security)"
+echo "  ✓ Remote Control systemd service (persistent across reboots)"
+echo ""
 echo "📋 Next steps:"
 echo ""
-echo "  1. Authenticate Claude Code (run on this EC2):"
-echo "       claude"
-echo "     A URL appears → open in browser on your Mac → login → paste code back."
+echo "  1. If Claude Code isn't authenticated yet (first time setup):"
+echo "       claude              # interactive login (URL in browser → paste code back)"
+echo "       systemctl --user restart claude-remote.service"
 echo ""
-echo "  2. Run Claude inside tmux for persistence (sobrevives session close):"
-echo "       tmux new -s claude"
-echo "       claude"
-echo "       # Ctrl+B then D to detach (Claude keeps running)"
-echo "       # tmux attach -t claude to reattach later"
+echo "  2. Verify the Remote Control session is alive:"
+echo "       systemctl --user status claude-remote.service"
+echo "     → should say 'active (running)'"
 echo ""
-echo "  3. On your CLIENT machine (Mac/laptop), set up daily remote access:"
+echo "  3. Open Claude Code Desktop OR claude.ai/code on your Mac:"
+echo "     → your session named \"\${REMOTE_NAME:-<HOSTNAME>-Permanent}\" should appear"
+echo "       in the sidebar under \"Pinned\" — click it to enter Claude on this EC2."
+echo "     → it survives reboots, WiFi drops, laptop closes. Permanent."
+echo ""
+echo "  4. (Optional) On a CLIENT machine, install SSH/Tailscale access skill:"
 echo "       curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/install.sh | bash"
-echo "       claude"
-echo "       /ec2-remote-access"
+echo "       claude → /ec2-remote-access"
 echo ""
-echo "  4. (Recommended) Account-level AWS hardening — do once per AWS account:"
-echo "       - CloudTrail (multi-region, S3 encrypted)"
-echo "       - GuardDuty (~\$3-5/mo per region)"
-echo "       - Budget alert (\$X/month, alerts at 50/80/100%)"
-echo "       - DLM (daily EBS snapshots, 7-day retention)"
-echo "       - EBS default encryption (account toggle)"
-echo "       - SSM Session Manager logging (to S3/CloudWatch)"
+echo "  5. (Recommended) Account-level AWS hardening — do once per AWS account:"
+echo "       - CloudTrail · GuardDuty · Budget · DLM · EBS encryption · SSM logging"
 echo ""
 echo "════════════════════════════════════════════════════════════"
