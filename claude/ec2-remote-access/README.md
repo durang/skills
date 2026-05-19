@@ -20,53 +20,66 @@
 
 | Modo | Cuándo usarlo | Qué hace | Dónde lo corres |
 |---|---|---|---|
-| 🖥️ **SERVIDOR** — [`bootstrap.sh`](#-modo-servidor-bootstrap-de-un-ec2-nuevo) | Tienes un **EC2 NUEVO** (recién lanzado) que vas a usar como host de Claude Code | Hardening + Claude Code + auto-patches OS + tmux + history audit + IMDSv2 verify | **EN el EC2** (vía SSM Session Manager o SSH) |
-| 💻 **CLIENTE** — [`/ec2-remote-access`](#-modo-cliente-conectar-tu-compu-al-ec2-los-5-pasos) | Tienes una **compu nueva** (Mac/Linux/iPad) que quieres usar como ventana al EC2 | Instala Tailscale + SSH key + aliases `ec2-tmux` | **EN tu compu cliente** |
+| 🖥️ **SERVIDOR** — [`bootstrap.sh`](#%EF%B8%8F-modo-servidor--bootstrap-de-un-ec2-nuevo-recomendado) ⭐ | Tienes un **EC2 NUEVO** y quieres tu Claude Code permanente pinned en Claude Code Desktop | Hardening + Claude + auto-patches + **systemd Remote Control service** (pinned en Desktop) | **EN el EC2** (vía SSM Session Manager o SSH) |
+| 💻 **CLIENTE** — [`/ec2-remote-access`](#-modo-cliente-conectar-tu-compu-al-ec2-los-5-pasos) | Opcional: tienes una compu nueva y quieres SSH directo al EC2 (sin pasar por Desktop) | Tailscale + SSH key + aliases `ec2-tmux` | **EN la compu cliente** |
 
-> Si vas a montar UN nuevo EC2 desde cero: corre Modo SERVIDOR primero (en el EC2), luego Modo CLIENTE (en tu Mac). Es la combinación canonical.
+> **Recomendación:** corre Modo SERVIDOR primero. Después tu sesión aparece pinned en Claude Code Desktop — ya no necesitas SSH para uso diario. El Modo CLIENTE solo si quieres acceso SSH adicional como backup/CLI directo.
 
 ---
 
-## 🖥️ Modo SERVIDOR: bootstrap de un EC2 nuevo
+## 🖥️ Modo SERVIDOR — bootstrap de un EC2 nuevo (RECOMENDADO)
 
-**Cuándo:** acabas de lanzar un EC2 (Amazon Linux 2023, Ubuntu, Debian, RHEL) y quieres dejarlo robusto + listo para Claude Code en una sola corrida.
+**Cuándo:** acabas de lanzar un EC2 (Amazon Linux 2023, Ubuntu, Debian, RHEL) y quieres tu Claude Code corriendo permanente + accesible desde Claude Code Desktop **con un solo comando**.
 
-**Cómo:** conecta a tu EC2 vía SSM Session Manager (lo más seguro — no necesita SSH abierto) o SSH. Una vez dentro, corre:
+**Cómo:** conecta a tu EC2 (SSM Session Manager o SSH), `sudo su - ec2-user`, y:
 
 ```bash
-# Recomendado: switch a ec2-user primero (no ssm-user)
-sudo su - ec2-user
+# Default name será <hostname>-Permanent. Para personalizar (recomendado):
+export REMOTE_CONTROL_NAME="JPC-Permanent"   # el nombre que verás en Claude Code Desktop
 
-# Bootstrap
+# Bootstrap (idempotente)
 curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/bootstrap.sh | bash
 ```
 
-**Lo que hace en 6 pasos idempotentes:**
+**Lo que hace en 7 pasos idempotentes:**
 
 | #  | Paso                                              | Detalle                                                     |
 |----|----|-|
-| 1  | Updates system packages                           | `dnf upgrade` / `apt upgrade` — baseline limpio              |
-| 2  | Instala utilidades base                           | `tmux`, `git`, `jq`, `curl`, `dnf-automatic`/`unattended-upgrades` |
-| 3  | **Auto-security-patches**                         | Activa el timer/service para que parches críticos se instalen solos en background |
-| 4  | Configura shell                                   | PATH persistente (`~/.local/bin`) + history audit (`HISTTIMEFORMAT`, `HISTSIZE`, append) |
-| 5  | Instala Claude Code                               | Con su propio auto-updater incluido                          |
-| 6  | Verifica IMDSv2                                   | Confirma que el endpoint v2 responde y v1 se rechaza         |
+| 1  | Updates system (security)                         | `dnf upgrade --security -y` / `apt upgrade` — baseline limpio |
+| 2  | Instala utilidades base                           | `tmux`, `git`, `jq`, `dnf-automatic`/`unattended-upgrades` |
+| 3  | **Auto-security-patches**                         | Parches críticos se instalan solos en background           |
+| 4  | Configura shell                                   | PATH persistente + history audit (`HISTTIMEFORMAT`, `HISTSIZE`) |
+| 5  | Instala Claude Code                               | Con auto-updater incluido                                   |
+| 6  | Verifica IMDSv2                                   | Confirma endpoint v2 responde y v1 se rechaza               |
+| 7  | **🌟 Remote Control systemd service**             | **Crea `~/.config/systemd/user/claude-remote.service` que arranca Claude con `--remote-control "<NAME>"`. Sobrevive reboots/crashes. La sesión aparece PINNED en tu Claude Code Desktop.** |
 
-**Después del bootstrap:**
+### Después del bootstrap — tu sesión aparece pinned automáticamente 🎯
 
-```bash
-# 1. Autenticate Claude (URL en browser → paste code back)
-claude
+1. **Autentica Claude** (una sola vez, primera vez de la EC2):
+   ```bash
+   claude
+   # URL en browser → login → paste code → Ctrl+C después de ver el prompt
+   systemctl --user restart claude-remote.service
+   ```
 
-# 2. Persistencia diaria con tmux
-tmux new -s claude
-claude
-# Ctrl+B luego D para detach (Claude sigue corriendo)
-# tmux attach -t claude para volver
-```
+2. **Verifica el service:**
+   ```bash
+   systemctl --user status claude-remote.service
+   # → active (running)
+   ```
+
+3. **Abre Claude Code Desktop** (o `claude.ai/code` en el browser) **logueado con la misma cuenta** que autenticaste en el EC2:
+   - En el sidebar bajo **Pinned** aparece tu sesión con el nombre que configuraste
+   - Click → entras directo, persistente, sobrevive todo
+
+**Esa es la "permanencia" que querías.** El service:
+- ✅ Restart automático si Claude crash (`Restart=always`)
+- ✅ Sobrevive reboots del EC2 (`WantedBy=default.target` + linger habilitado)
+- ✅ Sobrevive logout del usuario (linger)
+- ✅ No requiere SSH desde el cliente — Claude Code Desktop habla con el EC2 vía Anthropic backend
 
 > **Soporta:** Amazon Linux 2023, RHEL/CentOS/Fedora/Rocky/Alma, Ubuntu/Debian.
-> **Idempotente:** safe re-correr; nunca borra config, solo añade.
+> **Idempotente:** safe re-correr; solo añade lo que falta, nunca borra config.
 
 ---
 

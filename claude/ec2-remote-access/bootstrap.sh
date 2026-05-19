@@ -200,21 +200,37 @@ echo ""
 # Without this, you only have SSH/tmux access — not the native Claude Code remote session.
 echo "▶ [7/7] Installing Claude Code Remote Control systemd service"
 
-# Resolve Claude Code's internal entrypoint dynamically
+# Resolve Claude Code's entrypoint — supports BOTH layouts:
+#   Layout A (newer, single-binary):  ~/.local/bin/claude  (ELF binary symlink)
+#   Layout B (older, node wrapper):   .../node_modules/@anthropic-ai/claude-code/bin/claude.exe
 CLAUDE_EXE=""
-if command -v node >/dev/null 2>&1; then
-    CLAUDE_EXE="$(node -e "try { console.log(require('path').dirname(require.resolve('@anthropic-ai/claude-code/package.json')) + '/bin/claude.exe') } catch(e) {}" 2>/dev/null || true)"
-fi
-# Fallback: search common paths
-if [ -z "$CLAUDE_EXE" ] || [ ! -f "$CLAUDE_EXE" ]; then
-    CLAUDE_EXE="$(find "$HOME/.local" /usr/local /opt -name "claude.exe" -path "*claude-code/bin/*" 2>/dev/null | head -1)"
+
+# Try Layout A first — the stable symlink, which is what newer installs use
+if [ -L "$HOME/.local/bin/claude" ] || [ -f "$HOME/.local/bin/claude" ]; then
+    CLAUDE_EXE="$HOME/.local/bin/claude"
 fi
 
-if [ -z "$CLAUDE_EXE" ] || [ ! -f "$CLAUDE_EXE" ]; then
-    echo "  ⚠️  Couldn't locate claude.exe — skipping Remote Control service"
+# Fall back to Layout B (older node-based install with claude.exe)
+if [ -z "$CLAUDE_EXE" ] || [ ! -e "$CLAUDE_EXE" ]; then
+    if command -v node >/dev/null 2>&1; then
+        CLAUDE_EXE="$(node -e "try { console.log(require('path').dirname(require.resolve('@anthropic-ai/claude-code/package.json')) + '/bin/claude.exe') } catch(e) {}" 2>/dev/null || true)"
+    fi
+    # Fallback: search common paths for claude.exe
+    if [ -z "$CLAUDE_EXE" ] || [ ! -f "$CLAUDE_EXE" ]; then
+        CLAUDE_EXE="$(find "$HOME/.local" /usr/local /opt -name "claude.exe" -path "*claude-code/bin/*" 2>/dev/null | head -1)"
+    fi
+fi
+
+# Last resort: anything called `claude` in PATH
+if [ -z "$CLAUDE_EXE" ] || [ ! -e "$CLAUDE_EXE" ]; then
+    CLAUDE_EXE="$(command -v claude 2>/dev/null || true)"
+fi
+
+if [ -z "$CLAUDE_EXE" ] || [ ! -e "$CLAUDE_EXE" ]; then
+    echo "  ⚠️  Couldn't locate claude binary — skipping Remote Control service"
     echo "     You can install it later by running this bootstrap again after authenticating Claude."
 else
-    echo "  Found claude.exe: $CLAUDE_EXE"
+    echo "  Found claude binary: $CLAUDE_EXE"
 
     # Pick a session name — env var override OR hostname-derived default
     REMOTE_NAME="${REMOTE_CONTROL_NAME:-$(hostname -s | tr '[:lower:]' '[:upper:]')-Permanent}"
