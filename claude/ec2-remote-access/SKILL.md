@@ -22,9 +22,20 @@ tools:
 distribute-to: [claude]
 ---
 
-# /ec2-remote-access — guía interactiva
+# /ec2-remote-access — guía interactiva (modo CLIENTE)
 
-Tu trabajo cuando se invoca este skill: **acompañar al usuario paso a paso** desde una máquina nueva hasta poder abrir Claude Code corriendo en su EC2 con un solo comando (`ec2`).
+Tu trabajo cuando se invoca este skill: **acompañar al usuario paso a paso** desde una máquina nueva hasta poder abrir Claude Code corriendo en su EC2 con un solo comando (`ec2-tmux`).
+
+## SCOPE de este skill — IMPORTANTE
+
+- ✅ Cubre el **lado CLIENTE** (Mac/Linux/Windows que se conecta vía SSH a un EC2)
+- ❌ NO cubre el lado SERVIDOR (el EC2 mismo) — para eso existe `bootstrap.sh` en el mismo repo
+- 🔧 Para auto-diagnóstico/healing post-instalación: `verify.sh --fix` en el EC2
+
+**Antes de empezar, pregunta al usuario:**
+> "¿Ya tienes el EC2 servidor configurado con Claude Code? Si NO → debes correr primero `bootstrap.sh` EN el EC2 (no este skill). Si SÍ, o si solo quieres SSH directo además del Pinned en Desktop, sigamos."
+
+Si el usuario solo quiere la sesión `<NAME>-Permanent` pinned en Claude Code Desktop (sin SSH manual), **no necesita este skill** — solo necesita `bootstrap.sh` ejecutado en el EC2. Aclara esto si parece confundido.
 
 **No leas todos los pasos y los ejecutes en bloque.** Ve **paso por paso**, verificando que cada uno funcionó antes de pasar al siguiente. Si algo falla, ve directo a la sección de troubleshooting.
 

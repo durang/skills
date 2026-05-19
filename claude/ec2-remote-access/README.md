@@ -16,14 +16,17 @@
 
 ---
 
-## 📦 Dos modos — usa el que necesites
+## 📦 El skill tiene 2 modos + 1 herramienta de auto-sanación
 
-| Modo | Cuándo usarlo | Qué hace | Dónde lo corres |
+| | Comando | Qué hace | Dónde |
 |---|---|---|---|
-| 🖥️ **SERVIDOR** — [`bootstrap.sh`](#%EF%B8%8F-modo-servidor--bootstrap-de-un-ec2-nuevo-recomendado) ⭐ | Tienes un **EC2 NUEVO** y quieres tu Claude Code permanente pinned en Claude Code Desktop | Hardening + Claude + auto-patches + **systemd Remote Control service** (pinned en Desktop) | **EN el EC2** (vía SSM Session Manager o SSH) |
-| 💻 **CLIENTE** — [`/ec2-remote-access`](#-modo-cliente-conectar-tu-compu-al-ec2-los-5-pasos) | Opcional: tienes una compu nueva y quieres SSH directo al EC2 (sin pasar por Desktop) | Tailscale + SSH key + aliases `ec2-tmux` | **EN la compu cliente** |
+| 🖥️ **SERVIDOR** ⭐ | `curl ... bootstrap.sh \| bash` | Hardening + Claude Code + **systemd Remote Control** (pinned en Desktop) | EN el EC2 |
+| 💻 **CLIENTE** | `curl ... install.sh \| bash` → `/ec2-remote-access` | Tailscale + SSH key + aliases para acceso SSH adicional | EN la compu cliente |
+| 🔧 **DOCTOR** | `curl ... verify.sh \| bash -s -- --fix` | Diagnóstico de los 8 pasos + **auto-fix de problemas** | EN el EC2 |
 
-> **Recomendación:** corre Modo SERVIDOR primero. Después tu sesión aparece pinned en Claude Code Desktop — ya no necesitas SSH para uso diario. El Modo CLIENTE solo si quieres acceso SSH adicional como backup/CLI directo.
+> **Flujo canónico:** SERVIDOR primero (EC2 queda con Claude pinned en Desktop). Luego CLIENTE opcional si quieres SSH directo. Y siempre que algo se vea raro: DOCTOR.
+
+> **Self-healing:** cada bug encontrado en implementaciones reales se documenta en [TROUBLESHOOTING.md](TROUBLESHOOTING.md) y se fixea en `bootstrap.sh` + `verify.sh`. El próximo usuario recibe los fixes acumulados.
 
 ---
 
@@ -305,17 +308,56 @@ rm -rf ~/.config/ec2-remote-access
 
 ---
 
+## 🔧 Auto-sanación con verify.sh
+
+Si después de algún reboot o auto-update algo se ve raro, **un solo comando lo diagnostica y arregla**:
+
+```bash
+# Diagnóstico (read-only, lista qué está bien y qué falla):
+curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/verify.sh | bash
+
+# Diagnóstico + arreglo automático:
+curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/verify.sh | bash -s -- --fix
+```
+
+Chequea los 8 mismos pasos del bootstrap. Si encuentra algo roto, lo arregla (con `--fix`) o te dice exactamente cómo arreglarlo (sin flag).
+
+---
+
+## 🐛 Self-improving: bugs solucionados se acumulan
+
+Cada bug encontrado en implementaciones reales **se documenta + se fixea + el próximo usuario lo hereda gratis**. Ver:
+
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — 8 bugs reales documentados con síntoma + causa raíz + fix
+- **[CHANGELOG.md](CHANGELOG.md)** — versión + cada fix con contexto histórico
+
+Bugs ya solucionados que **NO te van a pasar** porque `bootstrap.sh` los maneja:
+1. `curl-minimal` vs `curl` conflict en Amazon Linux 2023
+2. `dnf upgrade -y` aborta con conflictos transitivos
+3. Single-binary Claude Code layout (`~/.local/bin/claude`) no detectado
+4. Trust dialog bloquea systemd service en restarts
+5. ssm-user efímero detectado y rechazado correctamente
+6. tmux session duplicado por confusión de naming
+7. SSM Session Manager TTY issues
+8. Cuentas Anthropic distintas (cliente vs servidor)
+
+---
+
 ## 📦 Estructura del repo
 
 ```
 ec2-remote-access/
-├── SKILL.md      ← El skill (lo lee Claude Code y guía al usuario)
-├── README.md     ← Este archivo
-├── install.sh    ← Instalador 1-línea (curl | bash)
-└── LICENSE       ← MIT
+├── bootstrap.sh         ← SERVIDOR: hardening + Remote Control systemd (8 pasos)
+├── install.sh           ← CLIENTE: instala el skill /ec2-remote-access en Claude Code
+├── verify.sh            ← DOCTOR: self-diagnostic + auto-fix de los 8 pasos
+├── SKILL.md             ← El skill conversacional (lo lee Claude Code para guiar al cliente)
+├── README.md            ← Este archivo
+├── TROUBLESHOOTING.md   ← Bugs reales encontrados + cómo se solucionaron
+├── CHANGELOG.md         ← Versión + historial de cada mejora
+└── LICENSE              ← MIT
 ```
 
-Solo 3 archivos. Sin dependencias. Sin contaminar otros skills.
+Una sola URL. Tres comandos. Cobertura completa de servidor + cliente + diagnóstico.
 
 ---
 

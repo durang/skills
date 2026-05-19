@@ -7,21 +7,47 @@
 # One-liner:
 #   curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/bootstrap.sh | bash
 #
-# What it does:
-#   [1/6] Updates all system packages once (security baseline)
-#   [2/6] Installs tmux, git, jq, curl, and auto-security-patches daemon
-#   [3/6] Configures auto-security-patches (dnf-automatic or unattended-upgrades)
-#   [4/6] Configures shell: PATH persistence + history audit
-#   [5/6] Installs Claude Code (auto-updating)
-#   [6/6] Verifies IMDSv2 enforcement
+# With custom Remote Control session name (recommended):
+#   export REMOTE_CONTROL_NAME="JPC-Permanent"
+#   curl -fsSL .../bootstrap.sh | bash
 #
-# After it finishes, on the EC2 run `claude` to authenticate.
-# Then on your CLIENT machine run the install.sh + /ec2-remote-access flow.
+# What it does:
+#   [1/8] Updates system (security only, tolerant)
+#   [2/8] Installs tmux, git, jq, and auto-security-patches daemon
+#   [3/8] Configures auto-security-patches (dnf-automatic / unattended-upgrades)
+#   [4/8] Configures shell: PATH persistence + history audit
+#   [5/8] Installs Claude Code (auto-updating)
+#   [6/8] Verifies IMDSv2 enforcement
+#   [7/8] Installs systemd Remote Control service (THE key piece — pinned in Claude Code Desktop)
+#   [8/8] Pre-trusts $HOME in ~/.claude.json (prevents trust dialog on service restart)
+#
+# After it finishes:
+#   1. If first time: run `claude` to authenticate, then restart the service
+#   2. Open Claude Code Desktop → sidebar Pinned → click <NAME>-Permanent
+#
+# Self-healing: if anything breaks, run:
+#   curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/verify.sh | bash -s -- --fix
+
+VERSION="1.0.0"
+
+# Handle --help and --version flags before the strict mode
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        --version|-V)
+            echo "bootstrap.sh v${VERSION}"
+            exit 0
+            ;;
+    esac
+done
 
 set -euo pipefail
 
 echo "════════════════════════════════════════════════════════════"
-echo "▶ /ec2-remote-access bootstrap.sh"
+echo "▶ /ec2-remote-access bootstrap.sh v${VERSION}"
 echo "  Hardening this EC2 for Claude Code workloads"
 echo "════════════════════════════════════════════════════════════"
 echo ""
