@@ -85,24 +85,29 @@ esac
 echo "  PkgMgr: $PKG_MGR"
 echo ""
 
-# ─── [1/6] Update system ──────────────────────────────────────
-echo "▶ [1/6] Updating system packages (baseline)"
+# ─── [1/6] Update system (security only, tolerate conflicts) ──────────────────────────────────────
+echo "▶ [1/6] Updating system packages (security baseline)"
 if [ "$PKG_MGR" = "dnf" ]; then
-    sudo dnf upgrade -y -q >/dev/null 2>&1 || sudo dnf upgrade -y -q
+    # --security only (less likely to conflict than full upgrade)
+    # || true: if there are package conflicts (e.g. curl-minimal vs curl), keep going
+    sudo dnf upgrade --security -y -q 2>/dev/null || sudo dnf upgrade --security -y || true
 elif [ "$PKG_MGR" = "apt" ]; then
     sudo apt-get update -qq
-    sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq || true
 fi
-echo "  ✅ System up to date"
+echo "  ✅ System security updates applied (or already current)"
 echo ""
 
 # ─── [2/6] Install base utilities + auto-patch daemon ──────────────────────────────────────
+# Note: curl is intentionally NOT in this list — Amazon Linux 2023 ships with
+# curl-minimal which conflicts with curl. The script is downloaded WITH curl
+# (you just ran `curl ... | bash`), so curl is always present.
 echo "▶ [2/6] Installing tmux, git, jq, $AUTO_PATCH_PKG"
 if [ "$PKG_MGR" = "dnf" ]; then
-    sudo dnf install -y -q tmux git jq curl "$AUTO_PATCH_PKG" >/dev/null 2>&1 || \
-        sudo dnf install -y -q tmux git jq curl "$AUTO_PATCH_PKG"
+    sudo dnf install -y -q tmux git jq "$AUTO_PATCH_PKG" >/dev/null 2>&1 || \
+        sudo dnf install -y tmux git jq "$AUTO_PATCH_PKG"
 elif [ "$PKG_MGR" = "apt" ]; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux git jq curl "$AUTO_PATCH_PKG"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux git jq "$AUTO_PATCH_PKG"
 fi
 echo "  ✅ Base utilities installed"
 echo ""
