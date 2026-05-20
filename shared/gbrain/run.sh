@@ -2240,6 +2240,40 @@ run_sync() {
   fi
   echo ""
 
+  # 5. Auto-upgrade binaries (OpenClaw + gbrain CLI) — added 2026-05-20
+  # User feedback: /gbrain debe upgradear TODO el stack, no solo skills.
+  echo "## 5. Auto-upgrade binaries (openclaw, gbrain CLI)"
+  echo ""
+  echo "| Binary | Antes | Latest | Acción |"
+  echo "|---|---|---|---|"
+
+  # OpenClaw via npm (donde apunta systemd unit)
+  local oc_before oc_latest
+  oc_before=$(grep '"version"' /home/ec2-user/.local/share/fnm/node-versions/v*/installation/lib/node_modules/openclaw/package.json 2>/dev/null | head -1 | grep -oE '[0-9.]+' | head -1)
+  oc_latest=$(npm view openclaw version 2>/dev/null | head -1 | tr -d '\n')
+  if [ -n "$oc_before" ] && [ -n "$oc_latest" ] && [ "$oc_before" != "$oc_latest" ]; then
+    echo "| openclaw | $oc_before | $oc_latest | 🔼 upgrading... |"
+    npm install -g openclaw@latest 2>&1 | tail -2 | head -1
+    # Restart gateway so it picks up the new version
+    systemctl --user restart openclaw-gateway 2>/dev/null && echo "✅ openclaw-gateway restartado con $oc_latest"
+    synced=$((synced+1))
+  else
+    echo "| openclaw | $oc_before | $oc_latest | ✅ al día |"
+  fi
+
+  # GBrain CLI (fork local en ~/gbrain symlinked)
+  local gb_before gb_upstream
+  if [ -d "$HOME/gbrain/.git" ]; then
+    gb_before=$(cd "$HOME/gbrain" && grep '"version"' package.json 2>/dev/null | head -1 | grep -oE '[0-9.]+' | head -1)
+    gb_upstream=$(cd "$HOME/gbrain" && git fetch upstream 2>/dev/null && git rev-list --count HEAD..upstream/master 2>/dev/null)
+    if [ "${gb_upstream:-0}" -gt 0 ]; then
+      echo "| gbrain CLI | $gb_before | $gb_upstream commits behind upstream | ⚠️ rebase manual recomendado (ver /gbrain news) |"
+    else
+      echo "| gbrain CLI | $gb_before | latest | ✅ al día |"
+    fi
+  fi
+  echo ""
+
   # 6. Verify md5 sums críticos (helper: pick run.sh or SKILL.md, return hash only)
   _md5() { local f="$1"; [ -f "$f" ] && md5sum "$f" | awk '{print $1}'; }
   _skill_md5() {
