@@ -258,6 +258,21 @@ if [ -z "$CLAUDE_EXE" ] || [ ! -e "$CLAUDE_EXE" ]; then
 else
     echo "  Found claude binary: $CLAUDE_EXE"
 
+    # ─── Idempotency guard (public skill: must adapt to any host) ────────────────
+    # A Remote Control service may already exist under a different name on a host
+    # set up by hand (e.g. a central-brain box uses claude-headless.service). Both
+    # bind the same tmux session "claude-remote", so creating a second one collides.
+    # If one is already active, reuse it instead of clobbering.
+    EXISTING_RC_SVC=""
+    for _svc in claude-remote claude-headless; do
+        systemctl --user is-active --quiet "${_svc}.service" 2>/dev/null && { EXISTING_RC_SVC="${_svc}.service"; break; }
+    done
+
+    if [ -n "$EXISTING_RC_SVC" ]; then
+        RC_SESSION="$(grep -oP -- '--remote-control \K\S+' "$HOME/.config/systemd/user/$EXISTING_RC_SVC" 2>/dev/null || echo '?')"
+        echo "  ⚪ Remote Control ya activo vía $EXISTING_RC_SVC (sesión: $RC_SESSION) — reuso, no creo duplicado."
+    else
+
     # Pick a session name — env var override OR hostname-derived default
     REMOTE_NAME="${REMOTE_CONTROL_NAME:-$(hostname -s | tr '[:lower:]' '[:upper:]')-Permanent}"
     echo "  Session name:   $REMOTE_NAME"
@@ -317,6 +332,7 @@ EOF
         echo "  ⚠️  Couldn't enable/start the service. Check:"
         echo "       systemctl --user status claude-remote.service"
     fi
+    fi  # end idempotency guard
 fi
 echo ""
 
