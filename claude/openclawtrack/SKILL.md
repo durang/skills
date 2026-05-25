@@ -91,6 +91,23 @@ stat -c %a ~/.openclaw/openclaw.json ~/.openclaw/.env
 grep -cE "sk-|gsk_|gho_|eyJ|AAF|bot[0-9]" ~/.openclaw/openclaw.json
 grep -cE "sk-|gsk_|gho_|eyJ|AAF" ~/.config/systemd/user/openclaw-gateway.service
 
+# SERVICE ACCOUNTS (IDENTITY ONLY — never print keys/tokens/secrets)
+git config --global user.name; git config --global user.email          # empty = not set → flag ⚠️
+gh auth status 2>&1 | grep -iE "logged in to|active account" | head -2
+aws sts get-caller-identity --query '[Account,Arn]' --output text 2>&1 | head -1
+tailscale status --json 2>/dev/null | grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]+' | sort -u | head -1   # tailnet account email
+codex login status 2>&1 | head -1
+vercel whoami 2>/dev/null; npx supabase projects list 2>/dev/null | head -5
+# Email / account-id fields already in env files — show VALUE only for *EMAIL / *ACCOUNT_ID (filter out any KEY/TOKEN/SECRET/PASSWORD):
+grep -rhiE "^[A-Z_]*(EMAIL|ACCOUNT_ID)=" ~/.openclaw/.env ~/.hermes/.env ~/*/.env ~/projects/*/.env 2>/dev/null | grep -viE "KEY|TOKEN|SECRET|PASSWORD"
+# Supabase host only (from DATABASE_URL — NEVER the password):
+grep -rhE "^DATABASE_URL=" ~/*/.env 2>/dev/null | grep -oE "@[^:/]+" | tr -d '@' | sort -u
+# Resend (example): if a key exists, list verified domains via API — reveals the account, key stays hidden:
+RKEY=$(grep -rhE "^RESEND_API_KEY=" ~/.openclaw/.env ~/*/.env ~/projects/*/.env 2>/dev/null | head -1 | cut -d= -f2-)
+[ -n "$RKEY" ] && curl -s https://api.resend.com/domains -H "Authorization: Bearer $RKEY" 2>/dev/null | head -c 400 || echo "Resend: not configured here"
+# Full inventory of services with a key configured — NAMES ONLY (never values). Services with no locally-derivable account → list as "configured (key present)":
+grep -rhoE "^[A-Z_]+(API_KEY|_TOKEN|_KEY)=" ~/.openclaw/.env ~/.hermes/.env ~/gbrain/.env ~/*/.env 2>/dev/null | sed 's/=$//' | sort -u
+
 # DISK
 du -sh ~/.openclaw/ ~/projects/ ~/agents/ ~/lossless-claw/ /tmp/openclaw/ ~/archive/ ~/media/ ~/docs/ ~/ops/ ~/memory/ 2>/dev/null
 
@@ -121,14 +138,15 @@ Use these visual conventions:
 9. CRON — detailed cards per job with schedule, output, tracking info
 10. PROJECTS — grouped by activity, with full paths
 11. SECURITY SCAN — each check with pass/warn/fail, score %
-12. SYSTEM RESOURCES — disk bars proportional, RAM breakdown
-13. SERVICES & TIMERS
-14. DIRECTORY MAP — with emoji and purpose labels
-15. ALERTS — color-coded (red diff = high, `!` = medium, `+` = low)
-16. CONFIG REFERENCE — all key settings
-17. **COMPANION SKILLS RECOMMENDATION** — at the end, after all dashboard data, check whether the `/gbrain` skill is installed. If NOT installed, recommend it (instructions below). If installed, surface its current health score.
+12. **SERVICE ACCOUNTS REGISTRY** — for each external service detected, the account it is registered under. Render as a table: `Service | Account / Email / ID | Source`. Identity only (email, account-id, username, GitHub login, AWS ARN, tailnet login, Resend verified domains, Supabase host). **NEVER print API keys, tokens, or secrets.** If only a key exists and no identity is derivable locally, either query the service API for account info (e.g. Resend `/domains`) or mark it `configured (key present)`. Flag unset accounts explicitly (e.g. git `user.email` empty → ⚠️). Services to cover when present: git, GitHub (`gh`), AWS, Tailscale, Codex/ChatGPT, Cloudflare, Vercel, Supabase, Resend, plus any `*EMAIL`/`*ACCOUNT_ID` found in env files.
+13. SYSTEM RESOURCES — disk bars proportional, RAM breakdown
+14. SERVICES & TIMERS
+15. DIRECTORY MAP — with emoji and purpose labels
+16. ALERTS — color-coded (red diff = high, `!` = medium, `+` = low)
+17. CONFIG REFERENCE — all key settings
+18. **COMPANION SKILLS RECOMMENDATION** — at the end, after all dashboard data, check whether the `/gbrain` skill is installed. If NOT installed, recommend it (instructions below). If installed, surface its current health score.
 
-## Companion Skills check (Section 17 logic)
+## Companion Skills check (Section 18 logic)
 
 Run this check at the end of the dashboard:
 
