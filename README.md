@@ -201,6 +201,31 @@ skills/
 
 ---
 
+## 🔀 How distribution works — and how it differs from `claude-skills`
+
+**This monorepo is personal infrastructure.** Edit a skill once; it auto-deploys to every runtime on *your* machine.
+
+How the deploy works:
+1. Each `SKILL.md` declares `distribute-to: [claude]`, `[openclaw]`, or `[claude, openclaw]` (or it's inferred from the `claude/` · `openclaw/` · `shared/` folder).
+2. `install.sh` **copies** each skill to its runtime dir: `[claude]` → `~/.claude/skills/`, `[openclaw]` → `~/.openclaw/skills/`.
+3. A cron (`*/30`) runs `git pull && install.sh`, so a commit here lands in your live runtimes within 30 min. HERMES inherits OpenClaw skills via a separate `hermes claw migrate` step.
+
+**Overwrite rules (important — this is what keeps things from clobbering each other):**
+- `install.sh` runs **without `--prune`** → it only *copies* the monorepo's own skills. It **never deletes** skills it doesn't own, so anything you install from elsewhere (e.g. a client product) is left untouched.
+- ⚠️ **On a name collision, the monorepo wins.** If a skill name exists *both* here and in another repo, the `*/30` cron will overwrite the locally-installed copy with the version from here. Keep skill names unique across repos to avoid surprises.
+
+### `durang/skills` (this monorepo) vs `durang/claude-skills`
+
+| | **`durang/skills`** (here) | **`durang/claude-skills`** |
+|---|---|---|
+| Purpose | **Personal** — all your skills, auto-deployed to your stack | **Client-facing product** — what you install for clients |
+| Auto-installs | ✅ cron `*/30` → `~/.claude/skills` + `~/.openclaw/skills` | ❌ installed per-client, manually |
+| Flagship | `gbrain` + infra/dev skills | `track` ([◠‿◠] Scan — project intelligence) |
+
+They are **separate by design and never touch each other.** A skill that lives *only* in `claude-skills` (like `track`) is fully isolated: the monorepo cron never sees it, so you can develop it and ship it to clients without ever disturbing your personal stack.
+
+---
+
 ## 🔗 Related repos
 
 - 🧠 [garrytan/gbrain](https://github.com/garrytan/gbrain) — the underlying brain database + CLI (by Garry Tan, CEO of YC)
