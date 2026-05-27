@@ -8,6 +8,14 @@
 #   bash ~/.openclaw/skills/gbrain/run.sh save      → full + save markdown to ~/brain/reports/
 
 set +e   # tolerant — single failing layer should not abort whole report
+
+# CRITICAL (2026-05-21): cron/non-tty shells lack user PATH and XDG_RUNTIME_DIR.
+# Without these, `gbrain ...` returns command-not-found (Layer 19 #9 false ❌)
+# and `systemctl --user show <unit> -p MainPID` returns empty (Layer 13 reports
+# "0 API keys" even when env is loaded fine).
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:$PATH"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 SUBCMD="${1:-check}"
 SKILL_DIR="$HOME/.openclaw/skills/gbrain"
 SNAP_DIR="$SKILL_DIR/snapshots"
@@ -276,7 +284,7 @@ except: print(0)" 2>/dev/null)
   echo "| 3b | 🔗 Schema correlation | tablas BD ↔ wrapper ↔ skills (detecta drift silencioso) |"
   echo "| 4 | 📊 Stats | pages/chunks/links/timeline |"
   echo "| 5 | 🎯 Skills | skills cargadas en OpenClaw |"
-  echo "| 5b | 🌀 HERMES integration | skills + bot diff + MCP link (parallel runtime) |"
+  echo "| 5b | 🌀 HERMES integration | versión vs latest + skills + bot diff + MCP link (parallel runtime) |"
   echo "| 6 | 📈 Captura 24h | efectividad de signal-detector |"
   echo "| 7 | 🐛 Bugs upstream | matchea tu versión vs known bugs |"
   echo "| 8 | 📰 News | releases/PRs/issues con fecha |"
@@ -478,20 +486,51 @@ except Exception as e:
     echo "_¿Qué mido?_ HERMES corre en paralelo a OpenClaw alimentando el mismo brain. Aquí verifico que el setup esté limpio: bot Telegram diferente al de OpenClaw, gbrain MCP server compartido, skills heredadas, gateway status. Detalle granular en \`/hermestrack\`."
     echo ""
     HERMES_VER=$($HOME/.local/bin/hermes --version 2>/dev/null | head -1 | awk '{print $3}' || echo "n/a")
+    # Versión vs latest (update check canónico — espeja Layer 1 para gbrain/openclaw)
+    HERMES_DATE_VER=$($HOME/.local/bin/hermes --version 2>/dev/null | grep -oE '20[0-9]{2}\.[0-9]+\.[0-9]+' | head -1)
+    HERMES_LATEST=""
+    if [ -d "$HOME/.hermes/hermes-agent/.git" ]; then
+      HERMES_LATEST=$(git -C "$HOME/.hermes/hermes-agent" ls-remote --tags --sort=-v:refname origin 'v20*' 2>/dev/null | grep -oE 'v20[0-9]{2}\.[0-9]+\.[0-9]+$' | head -1 | tr -d 'v')
+    fi
+    [ -z "$HERMES_LATEST" ] && command -v gh >/dev/null 2>&1 && HERMES_LATEST=$(gh api repos/NousResearch/hermes-agent/tags --jq '[.[].name | select(test("^v20"))][0]' 2>/dev/null | tr -d 'v')
+    if [ -z "$HERMES_LATEST" ]; then
+      HERMES_VER_STATUS="? (no se pudo consultar latest — sin clone ni gh)"
+    elif [ "$HERMES_DATE_VER" = "$HERMES_LATEST" ]; then
+      HERMES_VER_STATUS="✅ al día (último release v$HERMES_LATEST)"
+    else
+      HERMES_VER_STATUS="⚠️ instalado $HERMES_DATE_VER → latest v$HERMES_LATEST — run: hermes upgrade"
+    fi
     HERMES_MODEL=$(grep -A 1 "^model:" $HOME/.hermes/config.yaml 2>/dev/null | grep "default:" | head -1 | sed 's/.*default: *"\?\([^"]*\)"\?/\1/')
     HERMES_PROVIDER=$(grep "provider:" $HOME/.hermes/config.yaml 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"')
     HERMES_SKILLS=$(ls $HOME/.hermes/skills/ 2>/dev/null | wc -l)
     HERMES_IMPORTED=$(ls $HOME/.hermes/skills/openclaw-imports/ 2>/dev/null | wc -l)
-    # Canonical: Hermes corre via tmux (no systemd). Check tmux primero, fallback a hermes status.
-    if tmux ls 2>/dev/null | grep -q "hermes-gw"; then
-      HERMES_BRIDGE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:3000/health 2>/dev/null)
+    # Canonical (2026-05-21): Hermes corre via systemd --user (hermes-gateway.service).
+    # Check systemd primero, fallback a tmux (compat con setups viejos).
+    HERMES_BRIDGE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:3000/health 2>/dev/null)
+    HERMES_SYSD_ACTIVE=$(systemctl --user is-active hermes-gateway.service 2>/dev/null)
+    HERMES_SYSD_ENABLED=$(systemctl --user is-enabled hermes-gateway.service 2>/dev/null)
+    if [ "$HERMES_SYSD_ACTIVE" = "active" ]; then
       if [ "$HERMES_BRIDGE_CODE" = "200" ]; then
-        HERMES_GATEWAY="✅ running (tmux hermes-gw + bridge :3000 healthy)"
+        if [ "$HERMES_SYSD_ENABLED" = "enabled" ]; then
+          HERMES_GATEWAY="✅ running (systemd hermes-gateway.service active+enabled, bridge :3000 healthy)"
+        else
+          HERMES_GATEWAY="⚠️ running pero NOT enabled (no sobrevive reboot) — fix: systemctl --user enable hermes-gateway.service"
+        fi
+      else
+        HERMES_GATEWAY="⚠️ systemd active pero bridge HTTP $HERMES_BRIDGE_CODE"
+      fi
+    elif tmux ls 2>/dev/null | grep -q "hermes-gw"; then
+      if [ "$HERMES_BRIDGE_CODE" = "200" ]; then
+        HERMES_GATEWAY="⚠️ running via tmux (NO persistente — migrar a systemd: systemctl --user enable --now hermes-gateway.service)"
       else
         HERMES_GATEWAY="⚠️ tmux up but bridge HTTP $HERMES_BRIDGE_CODE"
       fi
     else
-      HERMES_GATEWAY="✗ tmux hermes-gw NOT running — re-create with: tmux new-session -d -s hermes-gw 'HERMES_HOME=~/.hermes ~/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run > /tmp/hermes-gw.log 2>&1'"
+      if [ -f $HOME/.config/systemd/user/hermes-gateway.service ]; then
+        HERMES_GATEWAY="🔴 systemd unit existe ($HERMES_SYSD_ACTIVE, $HERMES_SYSD_ENABLED) pero gateway DOWN — fix: systemctl --user enable --now hermes-gateway.service"
+      else
+        HERMES_GATEWAY="🔴 Hermes gateway NO running ni systemd unit ni tmux — instalar unit o crear tmux session"
+      fi
     fi
     HERMES_BOT=$(grep "^TELEGRAM_BOT_TOKEN" $HOME/.hermes/.env 2>/dev/null | head -1 | head -c 30 | sed 's/=.*/=***/')
     OPENCLAW_BOT_HASH=$(python3 -c "import json,hashlib;d=json.load(open('$HOME/.openclaw/openclaw.json'));t=d.get('channels',{}).get('telegram',{}).get('botToken','');print(hashlib.sha256(t.encode()).hexdigest()[:8] if t else '')" 2>/dev/null)
@@ -511,6 +550,7 @@ except Exception as e:
     echo "| Check | Valor |"
     echo "|---|---|"
     echo "| Versión HERMES | \`$HERMES_VER\` |"
+    echo "| Versión vs latest | $HERMES_VER_STATUS |"
     echo "| Modelo default | \`$HERMES_MODEL\` |"
     echo "| Provider | \`$HERMES_PROVIDER\` |"
     echo "| Skills totales (bundled+imports) | $HERMES_SKILLS |"
@@ -1965,15 +2005,14 @@ PY
     echo "| 8 | MCP gbrain binary | MISSING o no executable | ❌ |"; fail=$((fail+1))
   fi
 
-  if tmux ls 2>/dev/null | grep -q "hermes-gw"; then
-    HERMES_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:3000/health 2>/dev/null)
-    if [ "$HERMES_HTTP" = "200" ]; then
-      echo "| 9 | Hermes bridge | tmux + /health 200 | ✅ |"; pass=$((pass+1))
-    else
-      echo "| 9 | Hermes bridge | tmux up, /health $HERMES_HTTP | ⚠️ |"; fail=$((fail+1))
-    fi
+  HERMES_HTTP=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://127.0.0.1:3000/health 2>/dev/null)
+  HERMES_SYSD=$(systemctl --user is-active hermes-gateway.service 2>/dev/null)
+  if [ "$HERMES_SYSD" = "active" ] && [ "$HERMES_HTTP" = "200" ]; then
+    echo "| 9 | Hermes bridge | systemd active + /health 200 | ✅ |"; pass=$((pass+1))
+  elif tmux ls 2>/dev/null | grep -q "hermes-gw" && [ "$HERMES_HTTP" = "200" ]; then
+    echo "| 9 | Hermes bridge | tmux up, /health 200 (NOT persistent — migrate to systemd) | ⚠️ |"; fail=$((fail+1))
   else
-    echo "| 9 | Hermes bridge | tmux session NOT running | ⚠️ |"; fail=$((fail+1))
+    echo "| 9 | Hermes bridge | systemd=$HERMES_SYSD, /health=$HERMES_HTTP | ⚠️ |"; fail=$((fail+1))
   fi
 
   CRON_OK=$(python3 - <<'PY' 2>/dev/null
