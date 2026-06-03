@@ -17,3 +17,22 @@ Thumbs.db
 *.bak
 *.bak-*
 backups/
+
+# Personal / business artifacts that live in this dir but MUST stay local-only.
+# Added so `git add -A` accidents never leak them to the public repo.
+# (2026-06-03: blindar tras revisión del workspace.)
+jpc-*
+JPC-*
+foreman-*
+alteca-*
+cronograma-*
+fdp-*
+*-decision-brief*.md
+*-shareable-technical-brief*.md
+*-technical-architecture*.md
+create_jpc_*.py
+tmp/
+
+# Skills that exist locally but haven't been productionized yet (no distribute-to:
+# frontmatter aún — no se sube hasta que la migremos formalmente).
+shared/reclip/
