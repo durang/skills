@@ -15,6 +15,9 @@ triggers:
   - "remote claude code"
   - "tailscale ssh setup"
   - "abrir claude en otra compu"
+  - "terminal permanente en antigravity"
+  - "conectar antigravity al ec2"
+  - "terminal del ec2 en vscode/cursor"
 tools:
   - exec
   - read
@@ -243,6 +246,46 @@ Guarda y recarga:
 ```bash
 source $SHELL_RC
 ```
+
+---
+
+## Paso 7.5 — (OPCIONAL) Terminal permanente en Antigravity / VS Code / Cursor
+
+**Este paso es OPCIONAL. PREGÚNTALE primero al cliente:**
+
+> "¿Usas un editor tipo **Antigravity, VS Code o Cursor**? Si sí, puedo configurar su terminal integrada para que **cada vez que la abras caigas directo en una sesión permanente dentro del EC2** — cierras el editor, duermes la laptop o cambias de WiFi, y al reabrir sigues exactamente donde te quedaste. ¿Lo configuramos? (si no usas ninguno, saltamos este paso)"
+
+Si dice que **NO** → salta directo al Paso 8. Si dice que **SÍ**, continúa:
+
+**a) Pregúntale cuál editor** (Antigravity / VS Code / Cursor) y ubica su `settings.json` según el OS:
+
+| Editor | Mac | Linux | Windows |
+|---|---|---|---|
+| Antigravity | `~/Library/Application Support/Antigravity/User/settings.json` | `~/.config/Antigravity/User/settings.json` | `%APPDATA%\Antigravity\User\settings.json` |
+| VS Code | `~/Library/Application Support/Code/User/settings.json` | `~/.config/Code/User/settings.json` | `%APPDATA%\Code\User\settings.json` |
+| Cursor | `~/Library/Application Support/Cursor/User/settings.json` | `~/.config/Cursor/User/settings.json` | `%APPDATA%\Cursor\User\settings.json` |
+
+**b)** Agrega un perfil de terminal que se engancha al tmux persistente del EC2 (reutiliza el alias SSH `ec2` del Paso 5). Sustituye `osx` por `linux`/`windows` según el OS del cliente. Haz **merge** con jq, NO sobrescribas el archivo:
+
+```bash
+SETTINGS="<ruta de la tabla de arriba>"
+mkdir -p "$(dirname "$SETTINGS")"
+[ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+cp "$SETTINGS" "$SETTINGS.bak-$(date +%Y%m%d%H%M%S)"   # respaldo siempre
+jq '. + {
+  "terminal.integrated.profiles.osx": ((."terminal.integrated.profiles.osx" // {}) + {
+    "EC2 Permanente": { "path": "ssh", "args": ["-t", "ec2", "tmux new-session -A -s antigravity"] }
+  }),
+  "terminal.integrated.defaultProfile.osx": "EC2 Permanente"
+}' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+echo "✅ Perfil 'EC2 Permanente' agregado. Respaldo en $SETTINGS.bak-*"
+```
+
+> Si el cliente NO tiene `jq`, dale el bloque para pegar a mano dentro de su `settings.json` (mismo contenido). Pegar a mano es más seguro si el archivo ya tiene config compleja.
+
+**c)** Dile que **reinicie el editor** y abra una terminal nueva (`Ctrl+ñ` / `Ctrl+\``). Debe caer directo en el EC2, dentro de la sesión tmux `antigravity`.
+
+**Por qué funciona (explícaselo en 1 frase):** la permanencia la da `tmux new-session -A -s antigravity` (engancha-o-crea la misma sesión); el EC2 la mantiene viva aunque cierres el editor. El alias `ec2` del Paso 7 te sirve igual desde cualquier otra terminal como respaldo.
 
 ---
 
