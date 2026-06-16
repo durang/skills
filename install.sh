@@ -104,7 +104,7 @@ while IFS= read -r -d '' skill_md; do
 
   # Skip top-level files (README.md etc.) and legacy folders (handled by .gitignore at git level)
   case "$rel_skill_dir" in
-    landing-gen/*|lead-scraper/*|.git/*|.githooks/*|node_modules/*) continue ;;
+    landing-gen/*|lead-scraper/*|.git/*|.githooks/*|node_modules/*|*/skills/*) continue ;;
   esac
 
   # Subfolder convention takes precedence

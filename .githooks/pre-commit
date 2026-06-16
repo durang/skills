@@ -12,6 +12,9 @@ NEW_SKILLS=()
 while IFS= read -r f; do
   [ -f "$REPO_ROOT/$f" ] || continue
   case "$f" in
+    */skills/*) continue ;;
+  esac
+  case "$f" in
     *SKILL.md|*skill.md) NEW_SKILLS+=("$f") ;;
   esac
 done < <(git diff --cached --name-only --diff-filter=A 2>/dev/null)
