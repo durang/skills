@@ -86,6 +86,21 @@ curl -fsSL https://raw.githubusercontent.com/durang/ec2-remote-access/master/boo
 
 ---
 
+## 🔁 Persistencia: DOS patrones (el skill detecta, no asume)
+
+Para que el control remote sobreviva reboot hay **dos patrones válidos**. El skill **DETECTA** cuál usa tu máquina y se adapta — nunca mezcla ni impone uno (runbook completo en `SKILL.md`).
+
+| | **Patrón 1 — system-level** | **Patrón 2 — user-level** (preferido en máquina limpia) |
+|---|---|---|
+| Service | `/etc/systemd/system/claude-headless.service` | `~/.config/systemd/user/claude-<proyecto>.service` |
+| Root | Sí (sudo) | No |
+| Sobrevive reboot sin login | `WantedBy=multi-user.target` | `loginctl enable-linger <user>` |
+| Ejemplo real | `jarvis-v3` | EC2 de JPC (multi-proyecto en 1 tmux) |
+
+**Detección (paso 1 del runbook):** `systemctl list-units \| grep -i claude`, `systemctl --user list-units \| grep -i claude`, `tmux ls`, `loginctl show-user <user> \| grep Linger`. **Regla de oro:** default no-destructivo; reusar el patrón existente; nunca mezclar system + user.
+
+---
+
 ## 💻 Modo CLIENTE: conectar tu compu al EC2 (los 5 pasos)
 
 **Cuándo:** ya tienes un EC2 funcionando (configurado por ti, por un compañero, o con el Modo SERVIDOR arriba) y quieres usarlo desde una **máquina nueva** (Mac/Linux/Windows-WSL).

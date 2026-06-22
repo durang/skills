@@ -2,6 +2,20 @@
 
 Cada versión captura bugs encontrados en implementaciones reales + sus fixes. El skill se auto-mejora con cada uso.
 
+## [1.1.0] — 2026-06-22
+
+**Persistencia server-side: DETECTAR patrón, no asumir** (aprendido en el EC2 de JPC, multi-proyecto en una sola sesión tmux).
+
+### Added
+- Sección **"Persistencia del Control Remote en el EC2"** en `SKILL.md`: runbook idempotente y multi-proyecto que **detecta** cuál de los DOS patrones usa la máquina y se adapta.
+  - **Patrón 1 — system-level** (ej. jarvis-v3): `claude-headless.service` de sistema, `Restart=always`/`RestartSec=15`, `WantedBy=multi-user.target`. Requiere root.
+  - **Patrón 2 — user-level** (ej. EC2 de JPC): `systemd --user` + `loginctl enable-linger <user>`, sobrevive reboot sin login, `Type=forking`, sin root, más limpio.
+- Runbook 0–7: verificar cuenta Anthropic → DETECTAR (`systemctl` system + `--user`, `tmux ls`, `loginctl ... Linger`) → RAMIFICAR (limpio = user+linger; con servicios = reusar patrón, **no mezclar system+user**) → detectar huecos (tmux sin service) → idempotencia (reusar nombres) → detectar **drift** (.service vs comando real, ej. falta `--resume`) → TTY vía tmux + solo red saliente → verificar + reportar.
+- Plantillas de `.service` para ambos patrones.
+
+### Changed
+- **REGLA DE ORO** reforzada: default no-destructivo; preguntar antes de tocar sesiones con trabajo activo; **detectar y adaptarse al patrón de la máquina en vez de imponer uno.**
+
 ## [1.0.0] — 2026-05-19
 
 **Versión inicial canónica con 8 pasos completos** + self-healing via `verify.sh`.

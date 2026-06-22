@@ -6,7 +6,9 @@ description: |
   instala Tailscale, configura SSH keys, crea aliases, verifica la conexión. Una vez
   configurado, el comando "ec2" desde cualquier terminal te conecta a Claude Code remoto
   exactamente igual que si estuviera local. Funciona incluso si tu Mac se cae o cambias
-  de WiFi (tmux mantiene la sesión viva en EC2).
+  de WiFi (tmux mantiene la sesión viva en EC2). Incluye runbook de persistencia
+  server-side que DETECTA el patrón de la máquina (systemd system-level vs user-level +
+  lingering) en vez de asumir, idempotente y multi-proyecto.
 triggers:
   - "/ec2-remote-access"
   - "/ec2-setup"
@@ -32,7 +34,8 @@ Tu trabajo cuando se invoca este skill: **acompañar al usuario paso a paso** de
 ## SCOPE de este skill — IMPORTANTE
 
 - ✅ Cubre el **lado CLIENTE** (Mac/Linux/Windows que se conecta vía SSH a un EC2)
-- ❌ NO cubre el lado SERVIDOR (el EC2 mismo) — para eso existe `bootstrap.sh` en el mismo repo
+- ✅ Incluye el **runbook de persistencia server-side** (sección "Persistencia del Control Remote") — DOS patrones (system-level vs user-level) que el skill DEBE detectar, no asumir
+- ❌ El bootstrap inicial completo del EC2 sigue en `bootstrap.sh` en el mismo repo
 - 🔧 Para auto-diagnóstico/healing post-instalación: `verify.sh --fix` en el EC2
 
 **Antes de empezar, pregunta al usuario:**
@@ -41,6 +44,84 @@ Tu trabajo cuando se invoca este skill: **acompañar al usuario paso a paso** de
 Si el usuario solo quiere la sesión `<NAME>-Permanent` pinned en Claude Code Desktop (sin SSH manual), **no necesita este skill** — solo necesita `bootstrap.sh` ejecutado en el EC2. Aclara esto si parece confundido.
 
 **No leas todos los pasos y los ejecutes en bloque.** Ve **paso por paso**, verificando que cada uno funcionó antes de pasar al siguiente. Si algo falla, ve directo a la sección de troubleshooting.
+
+---
+
+## Persistencia del Control Remote en el EC2 — DETECTAR patrón, no asumir
+
+> Aprendido en el EC2 de JPC (2026-06-22). Esto es lado-SERVIDOR: cómo dejar el control remote de Claude corriendo en el EC2 de forma permanente y multi-proyecto. Complementa a `bootstrap.sh`. **Regla central: existen DOS patrones válidos de persistencia; el skill DEBE detectar cuál usa la máquina y adaptarse — nunca asumir ni imponer uno.**
+
+**PATRÓN 1 — system-level** (ej. `jarvis-v3`): `claude-headless.service` de **sistema**, `Restart=always`, `RestartSec=15`, `WantedBy=multi-user.target`. **Requiere root (sudo).**
+
+**PATRÓN 2 — user-level** (ej. EC2 de JPC): servicios `systemd --user` + `loginctl enable-linger <user>` para sobrevivir reboot **sin login**. `Type=forking`, envuelve tmux, `WantedBy=default.target`. **No requiere root, más limpio.**
+
+### Runbook (control remote permanente, multi-proyecto, idempotente)
+
+**0. Cuenta correcta.** Verifica que la cuenta de Anthropic logueada sea la de ESE EC2. Si no coincide, **PARA y avisa**.
+
+**1. DETECTAR estado (antes de crear nada — crítico):**
+```bash
+systemctl list-units | grep -i claude            # ¿patrón system-level?
+systemctl --user list-units | grep -i claude     # ¿patrón user-level?
+tmux ls                                            # sesiones tmux existentes
+loginctl show-user "$(whoami)" | grep Linger       # ¿lingering activo?
+```
+Identifica qué patrón (system o user) ya usa la máquina, y qué control-remotes / sesiones existen.
+
+**2. RAMIFICAR según lo detectado:**
+- **Máquina limpia** (nada corriendo) → usa **patrón user-level + lingering** por default (más limpio, sin root).
+- **Máquina con servicios existentes** → **REUSAR su patrón**. Si usa `--user`, sigue con `--user`. Si usa system, sigue system. **NUNCA mezclar system + user.**
+
+**3. Detectar huecos:** sesiones tmux sueltas **sin** servicio systemd (mueren en reboot) → crea **solo** el servicio faltante, con el patrón que ya usa la máquina.
+
+**4. Idempotencia:** nunca dupliques services ni sesiones. Reusa nombres existentes. Cubre `claude-remote`, `claude-headless`, `claude-<proyecto>`.
+
+**5. Detectar drift:** si un `.service` no refleja el comando real corriendo (ej. le falta `--resume <sessionId>`), **avísalo y ofrece alinearlo** — no lo cambies en silencio.
+
+**6. TTY + red:** envuelve en tmux (`--remote-control` requiere pseudo-TTY). Solo conexión **saliente** al relay; **NUNCA** abras puertos de entrada.
+
+**7. Verificar + reportar:** `systemctl [--user] status`, confirma supervivencia a reboot (lingering si es user-level), y reporta **nombres de service/sesión + comando de reconexión**.
+
+**REGLA DE ORO:** default **no-destructivo**. Pregunta antes de tocar sesiones con trabajo activo. **Detecta y adáptate al patrón de la máquina** en vez de imponer uno.
+
+### Plantillas de service
+
+**Patrón 1 — system (requiere sudo):** `/etc/systemd/system/claude-headless.service`
+```ini
+[Unit]
+Description=Claude Code headless control-remote
+After=network-online.target
+[Service]
+Type=simple
+User=ec2-user
+ExecStart=/usr/bin/tmux new-session -d -s claude '<comando claude --remote-control>'
+Restart=always
+RestartSec=15
+[Install]
+WantedBy=multi-user.target
+```
+`sudo systemctl daemon-reload && sudo systemctl enable --now claude-headless`
+
+**Patrón 2 — user (sin root, PREFERIDO en máquina limpia):** `~/.config/systemd/user/claude-<proyecto>.service`
+```ini
+[Unit]
+Description=Claude Code control-remote (<proyecto>)
+After=default.target
+[Service]
+Type=forking
+ExecStart=/usr/bin/tmux new-session -d -s claude-<proyecto> '<comando claude --remote-control>'
+ExecStop=/usr/bin/tmux kill-session -t claude-<proyecto>
+Restart=always
+RestartSec=15
+[Install]
+WantedBy=default.target
+```
+```bash
+loginctl enable-linger "$(whoami)"         # sobrevive reboot SIN login (clave del patrón 2)
+systemctl --user daemon-reload
+systemctl --user enable --now claude-<proyecto>
+```
+**Multi-proyecto:** una sesión tmux con N ventanas (una por proyecto), o un service `claude-<proyecto>` por proyecto — pero siempre dentro del MISMO patrón detectado.
 
 ---
 
