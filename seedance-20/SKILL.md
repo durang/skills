@@ -5,7 +5,15 @@ description: "This skill should be used when creating, improving, or troubleshoo
 license: MIT
 user-invocable: true
 tags: [seedance]
-triggers: [seedance, "seedance video", "text-to-video seedance", "image-to-video seedance", "video con seedance", "prompt seedance", "dreamina", "volcengine video"]
+triggers:
+  - seedance
+  - seedance video
+  - text-to-video seedance
+  - image-to-video seedance
+  - video con seedance
+  - prompt seedance
+  - dreamina
+  - volcengine video
 metadata:
   version: "5.5.2"
 ---
