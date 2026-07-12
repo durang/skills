@@ -1852,8 +1852,9 @@ run_save() {
   REPORT_FILE="$REPORT_DIR/gbrain-$TODAY.md"
   LATEST_LINK="$REPORT_DIR/gbrain-latest.md"
   run_check > "$REPORT_FILE"
+  # Copy (not symlink): gbrain sync rejects symlinks (SYMLINK_NOT_ALLOWED)
   rm -f "$LATEST_LINK"
-  ln -s "gbrain-$TODAY.md" "$LATEST_LINK"
+  cp "$REPORT_FILE" "$LATEST_LINK"
   HISTORY_COUNT=$(ls "$REPORT_DIR"/gbrain-*.md 2>/dev/null | grep -v latest | wc -l)
   echo "# 💾 GBrain Report Saved"
   echo ""
