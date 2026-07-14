@@ -2666,6 +2666,17 @@ PROCEDURE:
        session_id: <opaque short id from this conversation>
    If sources already exists in the page, APPEND not REPLACE.
 
+4.6. R6 EFFECTIVE DATE + RELATED WIKILINKS (v4.2):
+   - Decisions/originals/dated events get frontmatter effective_date: YYYY-MM-DD
+     (the date it HAPPENED, usually today). Timeless entities/concepts omit it.
+   - Every page body ENDS with a Related section of 1-3 wikilinks to
+     directly-involved pages (never self-link):
+     ## Related
+     - [[companies/acme]]
+     - [[people/jane-doe]]
+   - Reason: gbrain builds the timeline from effective_date and the knowledge
+     graph from [[wikilinks]]. A page without them is an orphan.
+
 5. CREATE LINKS for cross-references with gbrain__add_link:
    - Person works at Company → from:"people/x" to:"companies/y" type:"works_at"
    - Person co-founded Company → type:"founded"
