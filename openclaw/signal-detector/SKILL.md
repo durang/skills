@@ -1,6 +1,6 @@
 ---
 name: signal-detector
-version: 1.1.0
+version: 1.2.0
 changelog: |
   1.0.0 (initial): per-message ambient capture, originals + entities
   1.1.0 (2026-05-01): aligned with brain-write-macro v3 — R1 conflict-flag (no overwrite on
@@ -8,6 +8,10 @@ changelog: |
                        R2 source-tracking (frontmatter `sources: [{date, channel, session_id}]`,
                        channel=claude-code-stop-hook), meta-content guard (skip writes that
                        describe the conversation rather than the entity).
+  1.2.0 (2026-07-14): R3 graph signals — every page write includes 1-3 [[wikilinks]] in a
+                       "## Related" section + `effective_date: YYYY-MM-DD` frontmatter on
+                       dated signals. Rationale: 97% of pages were orphans (timeline 9%,
+                       links 2/25 in brain score); wikilinks + dates feed gbrain extract.
 description: |
   Always-on ambient signal capture. Fires on every inbound message to detect
   original thinking and entity mentions. Spawn as a cheap sub-agent in parallel,
@@ -116,6 +120,27 @@ diagnosing duplication or meta-content bugs across the 7 connected clients.
 
 **All valid R2 channels:** `claude-code-stop-hook`, `claude-ai-web`, `codex-cli`,
 `chatgpt-app`, `openclaw`, `hermes`, `cron-compound`, `cron-dream`
+
+### Phase 2.65: R3 Graph signals (v1.2.0 — wikilinks + effective_date)
+
+Every page this skill writes MUST include both:
+
+1. **`## Related` section** at the end of the body with 1-3 wikilinks to the
+   slugs of directly-involved entities/concepts (never self-link):
+
+```
+## Related
+- [[companies/acme]]
+- [[concepts/agent-memory]]
+```
+
+2. **`effective_date: YYYY-MM-DD`** in frontmatter when the signal is dated
+   (decisions, insights, events → the date it happened, usually today).
+   Omit for timeless entities/concepts.
+
+Why: `gbrain extract` builds the knowledge graph from `[[wikilinks]]` and the
+timeline from `effective_date`. A page without them is an orphan — invisible
+to graph search, whoknows, and timeline queries.
 
 ### Phase 2.7: Meta-content guard
 

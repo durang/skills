@@ -4,7 +4,7 @@ description: "Explicit save macro — when user says 'guarda en gbrain' (and 23 
 allowed-tools: Bash Read Write
 user-invocable: false
 companion-skills: signal-detector gbrain
-custom-instructions-version: 4.1
+custom-instructions-version: 4.2
 custom-instructions-changelog: |
   v1 (2026-04-28 03:30): initial — phrase trigger, put_page, add_link, slug list confirm
   v2 (2026-04-28 05:42): added CHECK BEFORE WRITE (get_page+merge), explicit type frontmatter,
@@ -28,6 +28,11 @@ custom-instructions-changelog: |
                             projects / tasks" — covers same breadth as v4 in 1 line vs 3 sections.
                             ChatGPT snippet hybrid: keeps tight pre-v4 structure + adds R3 task,
                             R4 proactive, SKIP rule, full link types. ~1450 chars (vs 1100 pre-v4
+  v4.2 (2026-07-14): R6 effective_date — decisions/originals/events get
+                      `effective_date: YYYY-MM-DD` frontmatter (the date it happened, not the
+                      capture date) + body ends with "## Related" wikilinks section (1-3
+                      [[slug]] links). Feeds gbrain timeline (was 9% coverage) and link graph
+                      (97% pages were orphans). Aligned with signal-detector v1.2.0 R3.
                             and 1800 v4-fragmented).
                           R3 task-type added (slug `tasks/<short>`, frontmatter status:
                           pending|in_progress|done|blocked, optional priority/estimated_hours/due_date).
@@ -185,6 +190,23 @@ If gbrain returns empty, say so explicitly: *"No encontré nada en gbrain sobre 
       session_id: <opaque short id>
   ```
 - Reason: when a page is wrong, you need to know which client wrote it so you can fix the upstream client. Tags like `merged-from-chatbot` are unstructured and not queryable.
+
+**Step 4.6 — R6 EFFECTIVE DATE + RELATED WIKILINKS (v4.2):**
+- Decisions, originals, and any dated signal get frontmatter
+  `effective_date: YYYY-MM-DD` — the date the thing **happened** (usually
+  today's conversation date), NOT the capture timestamp. Timeless
+  entities/concepts omit it.
+- Every page body ends with a `## Related` section holding 1-3 wikilinks to
+  the slugs of directly-involved pages (never self-link):
+  ```
+  ## Related
+  - [[companies/acme]]
+  - [[people/jane-doe]]
+  ```
+- Reason: `gbrain extract` builds the timeline from `effective_date` and the
+  knowledge graph from `[[wikilinks]]`. Pages without them are orphans —
+  invisible to graph search, whoknows, and timeline queries. (Brain audit
+  2026-07-12: 97% orphan pages, timeline coverage 9%.)
 
 **Step 5 — CREATE LINKS for cross-references with `gbrain__add_link`:**
 - Person works at Company → `from:"people/x" to:"companies/y" type:"works_at"`
