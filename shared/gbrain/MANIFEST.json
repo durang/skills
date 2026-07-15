@@ -37,13 +37,20 @@
       {
         "id": "gbrain",
         "path": "$HOME/.openclaw/skills/gbrain/",
-        "required_files": ["SKILL.md", "run.sh", "PRINCIPLES.md", "MANIFEST.json"],
+        "required_files": [
+          "SKILL.md",
+          "run.sh",
+          "PRINCIPLES.md",
+          "MANIFEST.json"
+        ],
         "kind": "dashboard"
       },
       {
         "id": "brain-write-macro",
         "path": "$HOME/.openclaw/skills/brain-write-macro/",
-        "required_files": ["SKILL.md"],
+        "required_files": [
+          "SKILL.md"
+        ],
         "kind": "behavior",
         "custom_instructions_version": 2,
         "custom_instructions_flag": "$HOME/.gbrain/custom-instructions-applied.flag",
@@ -52,7 +59,9 @@
       {
         "id": "signal-detector",
         "path": "$HOME/.openclaw/skills/signal-detector/",
-        "required_files": ["SKILL.md"],
+        "required_files": [
+          "SKILL.md"
+        ],
         "kind": "ambient-capture",
         "companion_hook": "$HOME/.gbrain/hooks/signal-detector.py",
         "companion_settings": "$HOME/.claude/settings.json"
@@ -96,19 +105,29 @@
         "id": "openclaw-config",
         "path": "$HOME/.openclaw/openclaw.json",
         "permissions": "600",
-        "must_contain_keys": ["mcp.servers.gbrain", "channels.telegram", "agents.defaults.model"]
+        "must_contain_keys": [
+          "mcp.servers.gbrain",
+          "channels.telegram",
+          "agents.defaults.model"
+        ]
       },
       {
         "id": "gbrain-config",
         "path": "$HOME/.gbrain/config.json",
         "permissions": "600",
-        "must_contain_keys": ["engine", "database_url"]
+        "must_contain_keys": [
+          "engine",
+          "database_url"
+        ]
       },
       {
         "id": "wrapper-env",
         "path": "$HOME/gbrain-http-wrapper/.env",
         "permissions": "600",
-        "must_contain_keys": ["PORT", "GBRAIN_OAUTH_PASSWORD"]
+        "must_contain_keys": [
+          "PORT",
+          "GBRAIN_OAUTH_PASSWORD"
+        ]
       },
       {
         "id": "soul-md",
@@ -118,31 +137,159 @@
       }
     ],
     "cron_jobs": [
-      { "id": "616d2c20-d06d-4116-830b-2b097b6fe819", "name": "GBrain Sync", "expected_schedule": "DEPRECATED — use system crontab", "deprecated": true, "replaced_by": "system_crontab", "replaced_on": "2026-05-03", "replacement_command": "*/15 * * * * gbrain sync --repo $HOME/brain && gbrain embed --stale >> $HOME/.gbrain/logs/sync.log 2>&1", "deprecation_reason": "Agent-isolated cron took ~5min/run with 1GB RAM (saturated EC2). Canonical pattern per gbrain docs/guides/live-sync.md is direct shell command (~0.5s/run, <100MB). 670x faster, same cadence." },
-      { "id": "363ae2bf-a065-4b50-9033-1397c77ae93b", "name": "GBrain Weekly Doctor", "expected_schedule": "0 9 * * 0" },
-      { "id": "009487c5-bfa8-4fb0-965b-0d59beb4a8a7", "name": "GBrain Daily Report", "expected_schedule": "0 20 * * *" },
-      { "id": "a6896cd4-069f-4447-ab67-7a74434f7b6f", "name": "GBrain Dream", "expected_schedule": "0 3 * * *" }
+      {
+        "id": "616d2c20-d06d-4116-830b-2b097b6fe819",
+        "name": "GBrain Sync",
+        "expected_schedule": "DEPRECATED — use system crontab",
+        "deprecated": true,
+        "replaced_by": "system_crontab",
+        "replaced_on": "2026-05-03",
+        "replacement_command": "*/15 * * * * gbrain sync --repo $HOME/brain && gbrain embed --stale >> $HOME/.gbrain/logs/sync.log 2>&1",
+        "deprecation_reason": "Agent-isolated cron took ~5min/run with 1GB RAM (saturated EC2). Canonical pattern per gbrain docs/guides/live-sync.md is direct shell command (~0.5s/run, <100MB). 670x faster, same cadence."
+      },
+      {
+        "id": "363ae2bf-a065-4b50-9033-1397c77ae93b",
+        "name": "GBrain Weekly Doctor",
+        "expected_schedule": "0 9 * * 0"
+      },
+      {
+        "id": "009487c5-bfa8-4fb0-965b-0d59beb4a8a7",
+        "name": "GBrain Daily Report",
+        "expected_schedule": "0 20 * * *"
+      },
+      {
+        "id": "a6896cd4-069f-4447-ab67-7a74434f7b6f",
+        "name": "GBrain Dream",
+        "expected_schedule": "0 3 * * *"
+      }
     ],
     "system_crontab_jobs": [
-      { "name": "GBrain Sync (canonical)", "schedule": "*/15 * * * *", "command": "gbrain sync --repo $HOME/brain && gbrain embed --stale", "match_pattern": "gbrain sync --repo", "since": "2026-05-03", "rationale": "Replaces deprecated openclaw isolated-agent cron. Source: gbrain docs/guides/live-sync.md (Approach 1)." },
-      { "name": "Skills monorepo sync", "schedule": "30 * * * *", "command": "cd $HOME/skills && git pull -q && bash install.sh", "match_pattern": "skills && git pull", "rationale": "Pulls skill updates from durang/skills repo." },
-      { "name": "Compound engine", "schedule": "30 10 * * *", "command": "bash $HOME/.openclaw/skills/gbrain/compound/run.sh run", "match_pattern": "compound/run.sh", "rationale": "7th-phase post-dream consolidation." },
-      { "name": "Compound morning report", "schedule": "0 15 * * *", "command": "bash $HOME/.openclaw/skills/gbrain/compound/morning-report.sh", "match_pattern": "compound/morning-report.sh", "rationale": "Daily summary of compound cycle." },
-      { "name": "OpenClaw sessions to corpus", "schedule": "0 * * * *", "command": "python3 $HOME/.openclaw/skills/gbrain/tools/openclaw-to-corpus.py", "match_pattern": "openclaw-to-corpus.py", "rationale": "Converts agent session jsonl to .txt corpus that gbrain dream synthesize reads." },
-      { "name": "GBrain daily report (16:00 UTC)", "schedule": "0 16 * * *", "command": "$HOME/.openclaw/skills/gbrain/run.sh save", "match_pattern": "gbrain/run.sh save", "rationale": "Saves /gbrain check report to ~/brain/reports/ daily." },
-      { "name": "Canonical config backup (16:30 UTC)", "schedule": "30 16 * * *", "command": "mkdir -p ~/backups/canon && cp ~/.openclaw/openclaw.json ~/backups/canon/openclaw-$(date +%Y%m%d).json && cp ~/SOUL.md ~/backups/canon/SOUL-$(date +%Y%m%d).md && cp ~/MEMORY.md ~/backups/canon/MEMORY-$(date +%Y%m%d).md", "match_pattern": "backups/canon", "rationale": "Daily snapshot of canonical config files (openclaw.json, SOUL.md, MEMORY.md)." }
+      {
+        "name": "GBrain Sync (canonical)",
+        "schedule": "*/15 * * * *",
+        "command": "gbrain sync --repo $HOME/brain && gbrain embed --stale",
+        "match_pattern": "gbrain sync --repo",
+        "since": "2026-05-03",
+        "rationale": "Replaces deprecated openclaw isolated-agent cron. Source: gbrain docs/guides/live-sync.md (Approach 1)."
+      },
+      {
+        "name": "Skills monorepo sync",
+        "schedule": "30 * * * *",
+        "command": "cd $HOME/skills && git pull -q && bash install.sh",
+        "match_pattern": "skills && git pull",
+        "rationale": "Pulls skill updates from durang/skills repo."
+      },
+      {
+        "name": "Compound engine",
+        "schedule": "30 10 * * *",
+        "command": "bash $HOME/.openclaw/skills/gbrain/compound/run.sh run",
+        "match_pattern": "compound/run.sh",
+        "rationale": "7th-phase post-dream consolidation."
+      },
+      {
+        "name": "Compound morning report",
+        "schedule": "0 15 * * *",
+        "command": "bash $HOME/.openclaw/skills/gbrain/compound/morning-report.sh",
+        "match_pattern": "compound/morning-report.sh",
+        "rationale": "Daily summary of compound cycle."
+      },
+      {
+        "name": "OpenClaw sessions to corpus",
+        "schedule": "0 * * * *",
+        "command": "python3 $HOME/.openclaw/skills/gbrain/tools/openclaw-to-corpus.py",
+        "match_pattern": "openclaw-to-corpus.py",
+        "rationale": "Converts agent session jsonl to .txt corpus that gbrain dream synthesize reads."
+      },
+      {
+        "name": "GBrain daily report (16:00 UTC)",
+        "schedule": "0 16 * * *",
+        "command": "$HOME/.openclaw/skills/gbrain/run.sh save",
+        "match_pattern": "gbrain/run.sh save",
+        "rationale": "Saves /gbrain check report to ~/brain/reports/ daily."
+      },
+      {
+        "name": "Canonical config backup (16:30 UTC)",
+        "schedule": "30 16 * * *",
+        "command": "mkdir -p ~/backups/canon && cp ~/.openclaw/openclaw.json ~/backups/canon/openclaw-$(date +%Y%m%d).json && cp ~/SOUL.md ~/backups/canon/SOUL-$(date +%Y%m%d).md && cp ~/MEMORY.md ~/backups/canon/MEMORY-$(date +%Y%m%d).md",
+        "match_pattern": "backups/canon",
+        "rationale": "Daily snapshot of canonical config files (openclaw.json, SOUL.md, MEMORY.md)."
+      },
+      {
+        "name": "Maintenance weekly cleanup",
+        "schedule": "0 15 * * 0",
+        "command": "bash $HOME/.openclaw/skills/gbrain/maintenance.sh cleanup",
+        "match_pattern": "maintenance.sh cleanup",
+        "since": "2026-07-15",
+        "rationale": "Disk hit 94% twice (2026-07-10, 2026-07-15): codex caches + logs_2.sqlite + journald. Caps caches weekly + reaps stale gbrain-serve MCP children >48h."
+      },
+      {
+        "name": "Health score drop alert",
+        "schedule": "20 16 * * *",
+        "command": "bash $HOME/.openclaw/skills/gbrain/maintenance.sh alert",
+        "match_pattern": "maintenance.sh alert",
+        "since": "2026-07-15",
+        "rationale": "Score fell to 10/100 on 2026-07-09 with no signal. Telegram alert on >10pt drop or disk >90%."
+      }
     ],
     "schema_contracts": {
       "description": "Required postgres tables and columns. Used by /gbrain Layer 3b for drift detection.",
       "tables": {
-        "pages": ["id", "slug", "type", "compiled_truth", "frontmatter", "created_at", "updated_at"],
-        "content_chunks": ["id", "page_id", "chunk_index", "chunk_text", "embedding", "embedded_at"],
-        "access_tokens": ["id", "name", "token_hash", "created_at", "last_used_at", "revoked_at"],
-        "oauth_clients": ["client_id", "client_name", "redirect_uris"],
-        "oauth_codes": ["code_hash", "client_id", "redirect_uri", "code_challenge", "expires_at"],
-        "oauth_refresh_tokens": ["refresh_hash", "client_id", "access_token_name", "expires_at"],
-        "ingest_log": ["id", "source_type", "source_ref", "summary", "created_at"],
-        "links": ["id", "from_page_id", "to_page_id", "link_type"]
+        "pages": [
+          "id",
+          "slug",
+          "type",
+          "compiled_truth",
+          "frontmatter",
+          "created_at",
+          "updated_at"
+        ],
+        "content_chunks": [
+          "id",
+          "page_id",
+          "chunk_index",
+          "chunk_text",
+          "embedding",
+          "embedded_at"
+        ],
+        "access_tokens": [
+          "id",
+          "name",
+          "token_hash",
+          "created_at",
+          "last_used_at",
+          "revoked_at"
+        ],
+        "oauth_clients": [
+          "client_id",
+          "client_name",
+          "redirect_uris"
+        ],
+        "oauth_codes": [
+          "code_hash",
+          "client_id",
+          "redirect_uri",
+          "code_challenge",
+          "expires_at"
+        ],
+        "oauth_refresh_tokens": [
+          "refresh_hash",
+          "client_id",
+          "access_token_name",
+          "expires_at"
+        ],
+        "ingest_log": [
+          "id",
+          "source_type",
+          "source_ref",
+          "summary",
+          "created_at"
+        ],
+        "links": [
+          "id",
+          "from_page_id",
+          "to_page_id",
+          "link_type"
+        ]
       }
     },
     "upstream_issues_open": [
