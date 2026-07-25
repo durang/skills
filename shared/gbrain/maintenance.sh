@@ -8,6 +8,10 @@
 # Both idempotent. State in ~/.gbrain/maintenance/.
 set -u
 HOME_DIR="$HOME"
+# gbrain is a bun shim: without bun on PATH every call dies with
+# "env: 'bun': No such file or directory" and the alert reports a
+# false "score unavailable" (silent for 4 days, 2026-07-21..24).
+export PATH="$HOME_DIR/.bun/bin:$HOME_DIR/.local/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 STATE_DIR="$HOME_DIR/.gbrain/maintenance"
 mkdir -p "$STATE_DIR"
 LOG="$STATE_DIR/maintenance.log"
