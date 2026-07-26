@@ -30,6 +30,10 @@ tg_send() {
 
 cmd_cleanup() {
   log "cleanup: start"
+  # Cron redirects open BEFORE the command runs: a missing log dir kills the
+  # whole entry silently. This cost 10 days of sync and 292h of dream cycles
+  # (2026-07-15..25). Recreate the dirs every week so it cannot recur.
+  mkdir -p "$HOME_DIR/.gbrain/logs" "$HOME_DIR/.gbrain/maintenance" 2>/dev/null
   # 1. Safe caches (regenerate on demand)
   rm -rf "$HOME_DIR/.openclaw/agents/main/agent/codex-home/home/.cache"/* \
          "$HOME_DIR/.openclaw/agents/main/agent/codex-home/home/.npm/_cacache" 2>/dev/null
