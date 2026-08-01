@@ -43,10 +43,12 @@ cmd_cleanup() {
   sudo journalctl --vacuum-size=300M >/dev/null 2>&1
   # 3. Docker: unused IMAGES only — never volumes (evolution postgres lives there)
   docker image prune -af >/dev/null 2>&1
-  # 4. Codex log DB: purge >7d + vacuum (skip silently if locked)
+  # 4. Codex log DB: purge >3d + vacuum (skip silently if locked).
+  #    7d retention let it reach 685MB in 5 days (2026-08-01) — it is the
+  #    single fastest-growing file on the box and holds only logs, no data.
   local db="$HOME_DIR/.openclaw/agents/main/agent/codex-home/logs_2.sqlite"
   if [ -f "$db" ]; then
-    local cutoff=$(( $(date +%s) - 7*86400 ))
+    local cutoff=$(( $(date +%s) - 3*86400 ))
     timeout 120 sqlite3 "$db" "DELETE FROM logs WHERE ts < $cutoff; VACUUM;" 2>/dev/null \
       && log "cleanup: codex logs purged (<$cutoff)" \
       || log "cleanup: codex log purge skipped (locked/timeout)"
