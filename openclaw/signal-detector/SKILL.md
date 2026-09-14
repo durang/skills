@@ -36,6 +36,30 @@ distribute-to: [openclaw]
 
 # Signal Detector — Ambient Brain Capture
 
+## Instalación / actualización en una máquina nueva
+
+⚠️ **El `install.sh` del monorepo NO instala este hook** — sólo copia skills según
+`distribute-to:`. El hook se instala aparte:
+
+```bash
+cd ~/skills && git pull
+bash openclaw/signal-detector/install-hook.sh
+```
+
+Idempotente: si ya está al día no toca nada; si reemplaza, deja `.bak-<fecha>`.
+
+**Por qué importa mantenerlo al día:** antes del fix de 2026-07-25 (`ALLOWED_NAMESPACES`)
+el hook escribía slugs SIN namespace. gbrain usa el slug entero como `page type`, así que
+cada página se inventaba su propio tipo. La Mac de Sergio se quedó con la versión vieja y
+generó 101 páginas mal tipadas entre agosto y septiembre — 163 tipos contra los 68 del
+pack, con el doctor clavado en 0/100 (limpiado el 2026-09-14).
+
+**Verificar que quedó bien:** tras una sesión, `~/.gbrain/hooks/signal-detector.log` debe
+mostrar capturas, y los slugs escritos SIEMPRE con namespace (`decisions/...`,
+`concepts/...`, `originals/...`). Si aparece un slug pelón, el hook está viejo.
+
+
+
 Lightweight sub-agent that fires on every inbound message to capture TWO things
 with EQUAL priority:
 
