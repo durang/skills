@@ -28,8 +28,28 @@ tg_send() {
     --data-urlencode "text=$msg" >/dev/null 2>&1
 }
 
+# Promueve effective_date del frontmatter a la COLUMNA.
+#
+# POR QUE: el hook signal-detector SI escribe `effective_date:` en el
+# frontmatter, pero gbrain no lo promueve a pages.effective_date — ni el put
+# ni `extract timeline --include-frontmatter` lo hacen (verificado 2026-09-17).
+# La columna es la que alimenta timeline density y la linea de tiempo, asi que
+# sin esto cada pagina nueva nace sin posicion temporal: 0/51 el 2026-09-17.
+# Prioriza frontmatter.effective_date (cuando PASO) sobre captured_at (cuando
+# se capturo). Idempotente: sólo toca filas con la columna NULL.
+cmd_backfill_dates() {
+  local url
+  url=$(python3 -c "import json;print(json.load(open('$HOME/.gbrain/config.json'))['database_url'])" 2>/dev/null)
+  [ -z "$url" ] && { log "backfill_dates: sin database_url"; return 0; }
+  local n1 n2
+  n1=$(psql "$url" -tAc "UPDATE pages SET effective_date=(substring(frontmatter->>'effective_date' from '^[0-9]{4}-[0-9]{2}-[0-9]{2}'))::date, effective_date_source='date' WHERE deleted_at IS NULL AND effective_date IS NULL AND frontmatter->>'effective_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND (substring(frontmatter->>'effective_date' from '^[0-9]{4}-[0-9]{2}-[0-9]{2}'))::date BETWEEN '1990-01-01' AND CURRENT_DATE" 2>/dev/null | tr -dc '0-9')
+  n2=$(psql "$url" -tAc "UPDATE pages SET effective_date=(substring(frontmatter->>'captured_at' from '^[0-9]{4}-[0-9]{2}-[0-9]{2}'))::date, effective_date_source='date' WHERE deleted_at IS NULL AND effective_date IS NULL AND frontmatter->>'captured_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' AND (substring(frontmatter->>'captured_at' from '^[0-9]{4}-[0-9]{2}-[0-9]{2}'))::date BETWEEN '1990-01-01' AND CURRENT_DATE" 2>/dev/null | tr -dc '0-9')
+  log "backfill_dates: ${n1:-0} desde effective_date + ${n2:-0} desde captured_at"
+}
+
 cmd_cleanup() {
   log "cleanup: start"
+  cmd_backfill_dates
   # Cron redirects open BEFORE the command runs: a missing log dir kills the
   # whole entry silently. This cost 10 days of sync and 292h of dream cycles
   # (2026-07-15..25). Recreate the dirs every week so it cannot recur.
@@ -89,6 +109,7 @@ cmd_alert() {
 
 case "${1:-}" in
   cleanup) cmd_cleanup ;;
+  backfill-dates) cmd_backfill_dates ;;
   alert)   cmd_alert ;;
-  *) echo "usage: $0 {cleanup|alert}"; exit 1 ;;
+  *) echo "usage: $0 {cleanup|alert|backfill-dates}"; exit 1 ;;
 esac
