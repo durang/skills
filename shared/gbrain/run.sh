@@ -564,6 +564,59 @@ except Exception as e:
   fi
 
   # ─── Layer 6: Captura últimas 24h ───
+  # ── Layer 6a: estado de los DETECTORES ────────────────────────────────
+  # Sin esto, Layer 6 puede decir "0 pages creadas" sin explicar POR QUE: el
+  # hook desinstalado, sin registrar en settings.json, o con la version previa
+  # al fix ALLOWED_NAMESPACES (que escribe slugs sin namespace y convierte cada
+  # pagina en su propio page type — 163 tipos basura, limpiados 2026-09-14).
+  # Esta capa muestra la CAUSA, no solo el sintoma.
+  echo "### 🔎 Detectores (la causa, no solo el síntoma)"
+  echo ""
+  echo "| Detector | Instalado | Registrado | Fix crítico | Última corrida |"
+  echo "|---|---|---|---|---|"
+  for H in signal-detector session-digest; do
+    HF="$HOME/.gbrain/hooks/$H.py"
+    INST="❌"; [ -f "$HF" ] && INST="✅"
+    REG="❌"; grep -q "$H" "$HOME/.claude/settings.json" 2>/dev/null && REG="✅"
+    FIX="n/a"
+    if [ "$H" = "signal-detector" ]; then
+      FIX="❌ hook viejo"
+      grep -q "ALLOWED_NAMESPACES" "$HF" 2>/dev/null && FIX="✅"
+    fi
+    LAST="—"
+    [ -f "$HOME/.gbrain/hooks/$H.log" ] && LAST=$(tail -1 "$HOME/.gbrain/hooks/$H.log" 2>/dev/null | grep -oE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}" | head -1)
+    echo "| \`$H\` | $INST | $REG | $FIX | ${LAST:-—} |"
+  done
+  echo ""
+  WF="$HOME/.gbrain/hooks/write-failures.log"
+  if [ -f "$WF" ]; then
+    # Contar solo lineas con "reason=" — el stderr de cada fallo ocupa varias
+    # lineas, asi que un wc -l crudo infla el numero (631 "fallos" que en
+    # realidad eran 14, visto el 2026-09-15).
+    WFCUT=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S 2>/dev/null)
+    WF24=$(awk -v d="$WFCUT" '$0 >= d && /reason=/' "$WF" 2>/dev/null | wc -l)
+    if [ "${WF24:-0}" -gt 0 ]; then
+      WFR=$(awk -v d="$WFCUT" '$0 >= d && /reason=/' "$WF" 2>/dev/null | grep -oE "reason=[a-z_]+" | sort | uniq -c | sort -rn | awk '{printf "%s×%s ", $1, $2}')
+      echo "⚠️ **$WF24 fallo(s) de escritura en 24h** — ${WFR:-?}"
+      echo ""
+      echo "_\`timeout\` = el brain tardó en responder (reintenta solo). \`slug_invalid_chars\` / \`slug_missing_or_unknown_namespace\` = el hook RECHAZÓ un slug mal formado: eso es el guardarraíl funcionando, no un error._"
+    else
+      echo "✅ Sin fallos de escritura en 24h"
+    fi
+  fi
+  echo ""
+  if [ -n "$PASSWORD" ]; then
+    QROW=$(PGPASSWORD=$PASSWORD psql "$DATABASE_URL" -tAF'|' -c "SELECT count(*), count(*) FILTER (WHERE slug LIKE '%/%'), count(*) FILTER (WHERE compiled_truth LIKE '%[[%'), count(effective_date) FROM pages WHERE deleted_at IS NULL AND created_at > now() - interval '24 hours' AND frontmatter ? 'source_session'" 2>/dev/null)
+    if [ -n "$QROW" ]; then
+      QT=$(echo "$QROW" | cut -d'|' -f1); QN=$(echo "$QROW" | cut -d'|' -f2)
+      QR=$(echo "$QROW" | cut -d'|' -f3); QD=$(echo "$QROW" | cut -d'|' -f4)
+      echo "**Calidad de la captura del hook (24h):** ${QT:-0} páginas · namespace ${QN:-0}/${QT:-0} · Related ${QR:-0}/${QT:-0} · effective_date ${QD:-0}/${QT:-0}"
+      echo ""
+      echo "_Sin namespace el slug se vuelve su propio page type. Sin Related y effective_date la página nace huérfana — el grafo y la línea de tiempo se construyen de ahí._"
+    fi
+  fi
+  echo ""
+
   echo "## 📈 Layer 6 — Captura ambient (últimas 24h)"
   echo ""
   echo "_¿Qué mido?_ La **efectividad real** de tu setup. Si pages/links/timeline NO crecieron en 24h significa que el agente no está capturando — algo se rompió silenciosamente. Las \`gbrain__\` tools en sessions confirman que el agente realmente llamó al MCP server."
