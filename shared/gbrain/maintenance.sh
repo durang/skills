@@ -86,8 +86,13 @@ cmd_alert() {
   local disk_pct score prev delta msg=""
   disk_pct=$(df -h / | awk 'NR==2{gsub("%","",$5); print $5}')
   # Doctor score (line: "Overall health score: N/100" or "Health score: N/100")
-  score=$(cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 300 "$HOME_DIR/.bun/bin/gbrain" doctor --summary 2>/dev/null \
-    | grep -oE "(Overall health|Health) score:? *[0-9]+" | grep -oE "[0-9]+$" | tail -1)
+  # Leer el score de --json, NO de texto. `doctor --summary` dejó de imprimir
+  # "Health score: N" en algún release (verificado roto el 2026-09-17 en
+  # 0.50.5.0) y el grep devolvía vacío ⇒ la alerta mandaba un falso
+  # "doctor no devolvió score" todos los días. --json expone health_score
+  # como campo estable.
+  score=$(cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 600 "$HOME_DIR/.bun/bin/gbrain" doctor --json 2>/dev/null \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('health_score',''))" 2>/dev/null | tr -dc '0-9')
   prev=$(cat "$STATE_DIR/last-score" 2>/dev/null || echo "")
   if [ -n "$score" ]; then
     echo "$score" > "$STATE_DIR/last-score"
