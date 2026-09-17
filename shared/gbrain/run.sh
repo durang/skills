@@ -1415,6 +1415,65 @@ for line in sys.stdin:
     echo ""
   done
 
+  # ─── Layer 17c: Benchmark vs el cerebro de Garry Tan ───
+  #
+  # POR QUE: el brain score mide FORMA (embed, links, timeline) pero no dice si
+  # el cerebro se parece al de alguien que lo usa bien. Los numeros publicos de
+  # Garry (17,888 paginas / 4,383 contactos / 723 empresas, feb-2026) revelaron
+  # el hueco real de Sergio el 2026-09-17: MAS paginas que Garry pero 25x MENOS
+  # contactos. El cerebro guardaba "que paso", no "con quien paso" — y eso
+  # explicaba links 3/25 y 50% de huerfanas mejor que cualquier check.
+  echo "## 🪞 Layer 17c — Benchmark vs el cerebro de Garry Tan"
+  echo ""
+  echo "_¿Qué mido?_ Tu forma vs la de quien creó GBrain. No es competencia: la **proporción** entre páginas y entidades dice si tu cerebro es un archivo o un grafo de relaciones. Referencia pública de Garry: 17,888 páginas · 4,383 contactos · 723 empresas."
+  echo ""
+  if [ -n "$PASSWORD" ]; then
+    BROW=$(PGPASSWORD=$PASSWORD psql "$DATABASE_URL" -tAF'|' -c "SELECT (SELECT count(*) FROM pages WHERE deleted_at IS NULL), (SELECT count(*) FROM pages WHERE deleted_at IS NULL AND type IN ('person','people')), (SELECT count(*) FROM pages WHERE deleted_at IS NULL AND type IN ('company','companies','organization','organizations'))" 2>/dev/null)
+    if [ -n "$BROW" ]; then
+      BP=$(echo "$BROW" | cut -d'|' -f1); BC=$(echo "$BROW" | cut -d'|' -f2); BE=$(echo "$BROW" | cut -d'|' -f3)
+      echo "| Métrica | Garry | Tú | Lectura |"
+      echo "|---|---|---|---|"
+      echo "| Páginas | 17,888 | ${BP:-?} | volumen de contenido |"
+      # Ratio contactos/paginas: el indicador que de verdad importa.
+      # Garry: 4383/17888 = 1 contacto cada ~4 paginas.
+      RATIO="—"
+      if [ "${BC:-0}" -gt 0 ] && [ "${BP:-0}" -gt 0 ]; then
+        RATIO=$(awk -v p="$BP" -v c="$BC" 'BEGIN{printf "1 cada %d", p/c}')
+      fi
+      echo "| **Contactos** | **4,383** | **${BC:-0}** | Garry: 1 cada 4 páginas · tú: ${RATIO} |"
+      echo "| Empresas | 723 | ${BE:-0} | |"
+      echo ""
+      if [ "${BC:-0}" -lt 500 ]; then
+        echo "🔴 **Brecha de entidades.** Sin personas y empresas no hay a qué enlazar: es la causa raíz de \`links\` y \`orphans\` bajos, no un bug. Atajo real: \`gbrain google connect\` (Gmail + Calendar + **Contactos**) o la skill \`enrich\` (\"create person page\")."
+      else
+        echo "✅ Densidad de entidades sana — el grafo tiene a qué enlazar."
+      fi
+    fi
+  fi
+  echo ""
+  # Releases upstream: fuente CANONICA de anuncios. Los tweets de Garry no se
+  # leen aqui a proposito — X exige auth y los feeds espejo no son confiables;
+  # cada release trae las notas completas de lo que anuncia.
+  echo "### 📢 Últimos releases de \`garrytan/gbrain\` (fuente canónica de anuncios)"
+  echo ""
+  if command -v gh >/dev/null 2>&1; then
+    GHREL=$(timeout 60 gh release list --repo garrytan/gbrain --limit 5 2>/dev/null | awk -F'\t' '{printf "| `%s` | %s |\n", $1, substr($4,1,10)}')
+    if [ -n "$GHREL" ]; then
+      echo "| Versión | Fecha |"; echo "|---|---|"; echo "$GHREL"
+      GHLATEST=$(timeout 60 gh release list --repo garrytan/gbrain --limit 1 2>/dev/null | awk -F'\t' '{print $1}')
+      GBVER_NOW=$("$HOME/.bun/bin/gbrain" --version 2>/dev/null | awk '{print $2}')
+      echo ""
+      echo "Tuya: \`${GBVER_NOW:-?}\` · última: \`${GHLATEST:-?}\`"
+    else
+      echo "_(gh sin acceso a releases)_"
+    fi
+  else
+    echo "_(\`gh\` no instalado — \`gh release list --repo garrytan/gbrain\`)_"
+  fi
+  echo ""
+  echo "_Las skills nativas también evolucionan: \`gbrain list-skills\` muestra las 53 disponibles. Las que más mueven la aguja y suelen estar apagadas: \`enrich\` (crea páginas de persona), \`voice-note-ingest\` (audios), \`archive-crawler\`, \`concept-synthesis\`, \`briefing\`._"
+  echo ""
+
   # ─── Layer 17b: Skill propagation (CENTRAL ORCHESTRATOR) ───
   echo "### 🔗 Cambios que afectan skills relacionados"
   echo ""
