@@ -4,7 +4,7 @@ description: "Explicit save macro — when user says 'guarda en gbrain' (and 23 
 allowed-tools: Bash Read Write
 user-invocable: false
 companion-skills: signal-detector gbrain
-custom-instructions-version: 4.2
+custom-instructions-version: 4.3
 custom-instructions-changelog: |
   v1 (2026-04-28 03:30): initial — phrase trigger, put_page, add_link, slug list confirm
   v2 (2026-04-28 05:42): added CHECK BEFORE WRITE (get_page+merge), explicit type frontmatter,
@@ -28,6 +28,9 @@ custom-instructions-changelog: |
                             projects / tasks" — covers same breadth as v4 in 1 line vs 3 sections.
                             ChatGPT snippet hybrid: keeps tight pre-v4 structure + adds R3 task,
                             R4 proactive, SKIP rule, full link types. ~1450 chars (vs 1100 pre-v4
+  v4.3 (2026-09-18): R7 — training (tipo nuevo en el pack, rutina<-sesion
+    via wikilink) + reflection pasivo (porque, no etiqueta; nunca preguntar
+    como se siente; patron antes que episodio).
   v4.2 (2026-07-14): R6 effective_date — decisions/originals/events get
                       `effective_date: YYYY-MM-DD` frontmatter (the date it happened, not the
                       capture date) + body ends with "## Related" wikilinks section (1-3
@@ -253,6 +256,8 @@ When the user is NOT explicitly saying "guarda", but the conversation contains a
 | **B — actionable task** | "tengo que hacer X", "no olvidar Y", "pendiente: Z", "luego hago W" | *"Detecté una tarea. ¿Lo guardo como `tasks/<slug>`?"* |
 | **C — decision** | "decidí X", "vamos con Y", "mejor Z que W", "descartamos V" | *"Detecté una decisión. ¿Lo guardo como `decisions/<slug>`?"* |
 | **D — recurring entity** | Same person/company in 3+ turns AND with at least ONE NEW substantive attribute (role, company, location, event, decision) — NOT casual mention repetition | *"Estamos hablando bastante de X. ¿Guardo página con lo nuevo?"* |
+| **E — entrenamiento** | "hoy entrené", "fui al gym", "hice pecho", "me tocó pierna" | *"Detecté un entrenamiento. ¿Lo guardo como `training/sesiones/<fecha>`?"* (ver R7a) |
+| **F — fricción / estado** | "esto me frustra", "me tiene harto", "estoy emocionado con", "me confunde" | *"¿Lo guardo como `reflections/<fecha>-<tema>`?"* (ver R7b — pasivo, nunca preguntar cómo se siente) |
 
 **Behavior rules**:
 - Show ONE LINE only. Wait for yes/no.
@@ -262,6 +267,69 @@ When the user is NOT explicitly saying "guarda", but the conversation contains a
 - Apply quality filter: pattern D requires NEW substantive attribute, not just repetition. "Mi mamá llamó / mi mamá cocinó / mi mamá vino" without new info → don't offer.
 
 **Why proactive instead of fully automatic**: silent auto-writes from a partial-context client (claude.ai web, ChatGPT) are how garbage gets into the brain. The user is the only authority on what's worth keeping. The 1-line offer is cheap; the user prunes by replying yes/no.
+
+## R7 — Entrenamiento y estado interno (v4.3, 2026-09-18)
+
+Dos señales que el brain NO capturaba y que Sergio pidió explícitamente. Ambas
+son de **captura pasiva**: se detectan de lo que ya dice, nunca se piden.
+
+### R7a — Entrenamiento (`training`)
+
+Tipo declarado en el pack el 2026-09-18 (`primitive: temporal`, prefix `training/`).
+Dos formas, y la relación entre ellas es lo que da el valor:
+
+| Qué | Slug | Frontmatter obligatorio |
+|---|---|---|
+| Rutina propuesta | `training/rutinas/<nombre-kebab>` | `effective_date`, `routine_days`, `status: activa\|pausada\|abandonada` |
+| Sesión entrenada | `training/sesiones/YYYY-MM-DD[-<bloque>]` | `effective_date`, `session_type`, opcional `duration_min`, `rpe` |
+
+**Disparadores (ofrecer, no escribir solo):**
+- Rutina: *"hazme una rutina"*, *"arma un plan de entrenamiento"*, *"qué rutina me recomiendas"*
+  → al ENTREGAR la rutina, ofrecer: *"¿La guardo como `training/rutinas/<slug>`?"*
+- Sesión: *"hoy entrené"*, *"fui al gym"*, *"hice pecho"*, *"me tocó pierna"*
+  → *"Detecté un entrenamiento. ¿Lo guardo como `training/sesiones/<fecha>`?"*
+
+**REGLA DURA:** toda sesión cierra con un wikilink a su rutina:
+```
+## Related
+- [[training/rutinas/<la-rutina-vigente>]]
+```
+Sin ese enlace la sesión es un dato suelto. CON él se puede responder *"esta rutina
+la dejaste al día 9, igual que la de julio"* — que es el punto entero.
+
+Si no se sabe cuál rutina está vigente: `search training/rutinas` y usar la de
+`status: activa`. Si no hay ninguna, guardar la sesión sin Related y decirlo.
+
+**NUNCA inventar cifras.** Pesos, series y repeticiones se escriben SOLO si el
+usuario los dijo. Un peso inventado contamina el histórico de progresión para
+siempre.
+
+### R7b — Estado interno (`reflection`)
+
+Tipo ya declarado (prefix `reflections/`). Slug: `reflections/YYYY-MM-DD-<tema-kebab>`.
+
+**Disparadores:** *"esto me frustra"*, *"me tiene harto"*, *"estoy emocionado con"*,
+*"no me late cómo"*, *"me confunde"*, *"llevo días atorado con"*.
+
+**Las tres reglas — no negociables** (vienen de la evidencia sobre auto-registro
+emocional: ayuda la conciencia, daña la rumiación):
+
+1. **Guardar el PORQUÉ, no la etiqueta.** `"Me frustró que el deploy tardara 3h
+   y no supe por qué"` ✅ · `"ánimo: 4/10"` ❌. Nada de escalas ni puntajes.
+2. **Nunca abrir con eso.** Ningún agente arranca un turno con *"veo que el
+   martes estabas mal"*. El estado emocional se menciona SOLO si el usuario
+   pregunta o si es directamente relevante a lo que está pidiendo ahora.
+3. **Patrón, no episodio.** El valor está en *"esto te ha frustrado 3 veces este
+   mes"*. Un episodio suelto no se comenta. Umbral: 3+ ocurrencias del MISMO
+   tema antes de señalarlo, y se señala una vez, no cada vez.
+
+**NUNCA pedir un check-in emocional.** Nada de *"¿cómo te sientes hoy?"* ritual.
+Eso es exactamente lo que convierte el registro en rumiación. Captura pasiva o
+nada.
+
+**Por qué vale la pena:** las frustraciones repetidas de Sergio suelen ser su
+siguiente producto. Ese es el uso — detección de fricción recurrente, no diario
+emocional.
 
 ## CRITICAL RULES — anti-hallucination
 
