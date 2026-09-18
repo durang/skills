@@ -1,6 +1,6 @@
 ---
 name: brain-write-macro
-description: "Explicit save macro — when user says 'guarda en gbrain' (and 23 phrase variants in ES/EN), automatically extract entities, decisions, originals, and links from the conversation and write them as gbrain pages. Companion to signal-detector (which captures passively per-message); brain-write-macro is the explicit user-triggered version that works in clients without hooks (Claude Desktop, claude.ai web, mobile)."
+description: "Explicit save macro — when user says 'guarda en gbrain' (and 23 phrase variants in ES/EN), automatically extract entities, decisions, originals, and links from the conversation and write them as gbrain pages. Companion to signal-detector (which captures passively per-message); brain-write-macro is the explicit user-triggered version that works in clients without hooks (Claude Desktop, claude.ai web, mobile). ALSO covers R7 signals: workouts and training routines ('hoy entrene', 'fui al gym', 'hazme una rutina', 'me toco pierna' -> training/rutinas y training/sesiones, la sesion SIEMPRE enlaza a su rutina) and internal state / friction ('esto me frustra', 'me tiene harto', 'estoy emocionado con', 'me confunde' -> reflections/, captura PASIVA: guardar el porque, nunca preguntar como se siente)."
 allowed-tools: Bash Read Write
 user-invocable: false
 companion-skills: signal-detector gbrain
