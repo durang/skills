@@ -112,9 +112,71 @@ cmd_alert() {
   return 0
 }
 
+# ── autofix: ataca los BACKLOGS que `run.sh fix` no toca ──────────────
+# POR QUÉ EXISTE: `/gbrain fix` corre embed/extract/migraciones, pero deja
+# intactos los dos backlogs que hunden el doctor score:
+#   conversation_facts_backlog  (~1965 páginas el 2026-09-27)
+#   extract_atoms_backlog       (~2731 páginas)
+# Sin esto el score se queda clavado en 25/100 aunque no haya UN solo FAIL.
+#
+# ENTREGA INCREMENTAL: cada pieza se manda a Telegram EN CUANTO termina, no
+# al final. Un timeout en la pieza 3 no debe tragarse las piezas 1 y 2.
+# NO usa `/gbrain sync` para SOUL.md: sync restaura desde canonical y el vivo
+# suele ir ADELANTE (el 2026-09-27 habría borrado las reglas R7 v4.3).
+cmd_autofix() {
+  local t0 score_before score_after
+  t0=$(date +%s)
+  score_before=$(gbrain doctor --json 2>/dev/null | python3 -c "
+import json,sys
+try: print(json.load(sys.stdin).get('health_score','?'))
+except Exception: print('?')" 2>/dev/null)
+  log "autofix: start score=$score_before"
+
+  # 1) atoms pendientes
+  if timeout 3000 gbrain extract --stale --catch-up >>"$LOG" 2>&1; then
+    tg_send "🧠 autofix 1/3 — atoms al día"; log "autofix: atoms ok"
+  else
+    tg_send "⚠️ autofix 1/3 — atoms falló (ver $LOG)"; log "autofix: atoms FAIL"
+  fi
+
+  # 2) conversation facts
+  if timeout 3000 gbrain extract-conversation-facts >>"$LOG" 2>&1; then
+    tg_send "🧠 autofix 2/3 — conversation facts al día"; log "autofix: facts ok"
+  else
+    tg_send "⚠️ autofix 2/3 — facts falló (ver $LOG)"; log "autofix: facts FAIL"
+  fi
+
+  # 3) links + timeline (--source db: el filesystem sólo ve ~2k de 30k páginas)
+  if timeout 1800 gbrain extract all --source db >>"$LOG" 2>&1; then
+    tg_send "🧠 autofix 3/3 — links + timeline extraídos"; log "autofix: extract ok"
+  else
+    tg_send "⚠️ autofix 3/3 — extract falló (ver $LOG)"; log "autofix: extract FAIL"
+  fi
+
+  # SOUL.md: sólo REPORTA el drift. Restaurar es decisión humana — la copia viva
+  # puede ser la buena (ver nota arriba).
+  local sl sc
+  sl=$(md5sum "$HOME_DIR/.hermes/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+  sc=$(md5sum "$HOME_DIR/.hermes/canonical/SOUL.md" 2>/dev/null | cut -d' ' -f1)
+  if [ -n "$sc" ] && [ "$sl" != "$sc" ]; then
+    tg_send "📜 SOUL.md difiere del canónico. NO lo toqué — revisa el diff antes de restaurar: diff ~/.hermes/canonical/SOUL.md ~/.hermes/SOUL.md"
+  fi
+
+  score_after=$(gbrain doctor --json 2>/dev/null | python3 -c "
+import json,sys
+try: print(json.load(sys.stdin).get('health_score','?'))
+except Exception: print('?')" 2>/dev/null)
+  local mins=$(( ($(date +%s) - t0) / 60 ))
+  tg_send "✅ autofix terminado en ${mins}min · score ${score_before} → ${score_after}"
+  log "autofix: done score=$score_before->$score_after ${mins}min"
+  return 0
+}
+
+
 case "${1:-}" in
   cleanup) cmd_cleanup ;;
   backfill-dates) cmd_backfill_dates ;;
   alert)   cmd_alert ;;
-  *) echo "usage: $0 {cleanup|alert|backfill-dates}"; exit 1 ;;
+  autofix) cmd_autofix ;;
+  *) echo "usage: $0 {cleanup|alert|backfill-dates|autofix}"; exit 1 ;;
 esac
