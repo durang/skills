@@ -126,10 +126,9 @@ cmd_alert() {
 cmd_autofix() {
   local t0 score_before score_after
   t0=$(date +%s)
-  score_before=$(gbrain doctor --json 2>/dev/null | python3 -c "
-import json,sys
-try: print(json.load(sys.stdin).get('health_score','?'))
-except Exception: print('?')" 2>/dev/null)
+  score_before=$(cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 600 "$HOME_DIR/.bun/bin/gbrain" doctor --json 2>/dev/null \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('health_score',''))" 2>/dev/null | tr -dc '0-9')
+  [ -z "$score_before" ] && score_before="?"
   log "autofix: start score=$score_before"
 
   # 1) atoms pendientes
@@ -162,10 +161,9 @@ except Exception: print('?')" 2>/dev/null)
     tg_send "📜 SOUL.md difiere del canónico. NO lo toqué — revisa el diff antes de restaurar: diff ~/.hermes/canonical/SOUL.md ~/.hermes/SOUL.md"
   fi
 
-  score_after=$(gbrain doctor --json 2>/dev/null | python3 -c "
-import json,sys
-try: print(json.load(sys.stdin).get('health_score','?'))
-except Exception: print('?')" 2>/dev/null)
+  score_after=$(cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 600 "$HOME_DIR/.bun/bin/gbrain" doctor --json 2>/dev/null \
+    | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('health_score',''))" 2>/dev/null | tr -dc '0-9')
+  [ -z "$score_after" ] && score_after="?"
   local mins=$(( ($(date +%s) - t0) / 60 ))
   tg_send "✅ autofix terminado en ${mins}min · score ${score_before} → ${score_after}"
   log "autofix: done score=$score_before->$score_after ${mins}min"
