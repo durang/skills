@@ -309,12 +309,22 @@ def write_to_gbrain(slug: str, title: str, body: str, session_id: str,
     related = ""
     if clean_links:
         related = "\n\n## Related\n" + "\n".join(f"- [[{l}]]" for l in clean_links)
+    _now = datetime.now(timezone.utc).isoformat(timespec='seconds')
     page = (
         f"---\n"
         f"type: {slug.split('/',1)[0]}\n"
         f"title: {_yaml_escape(title)}\n"
         f"source_session: {_yaml_escape(session_id)}\n"
-        f"captured_at: {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+        f"captured_at: {_now}\n"
+        # R2 source-tracking. The hook already knew the provenance (source_session
+        # + captured_at) but emitted it in a shape nothing reads: the write macro,
+        # the dashboard and `find_contradictions` all key on `sources`. Result —
+        # 446 pages/week landed unattributed, and when two clients disagreed there
+        # was no way to tell which one wrote what. Same data, shape that counts.
+        f"sources:\n"
+        f"  - date: {_now[:10]}\n"
+        f"    channel: claude-code-signal-detector\n"
+        f"    session_id: {_yaml_escape(session_id)}\n"
         f"{date_line}"
         f"---\n\n{body}{related}\n"
     )
