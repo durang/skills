@@ -5,12 +5,15 @@
 ### **One command to orchestrate your entire AI agent stack.**
 
 [![Status](https://img.shields.io/badge/status-canonical-success?style=flat-square)](https://github.com/durang/skills)
-[![Stack](https://img.shields.io/badge/stack-Claude_Code_+_OpenClaw_+_HERMES_+_GBrain-blue?style=flat-square)](https://github.com/durang/skills)
+[![Clients](https://img.shields.io/badge/clients-8_sharing_one_brain-blue?style=flat-square)](https://github.com/durang/skills)
+[![Brain](https://img.shields.io/badge/brain-30.5k_pages_·_26.6k_links-9cf?style=flat-square)](https://github.com/durang/skills)
 [![Layers](https://img.shields.io/badge/dashboard-25_sections-orange?style=flat-square)](https://github.com/durang/skills/tree/master/shared/gbrain)
 [![Verified](https://img.shields.io/badge/lie--detector-25_claims-brightgreen?style=flat-square)](https://github.com/durang/skills/tree/master/shared/gbrain)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](LICENSE)
 
 **Type `/gbrain` once. Your entire multi-agent infrastructure updates canonically, safely, zero downtime.**
+
+**8 AI clients. One shared memory.**
 
 [Install](#-install) · [The Dashboard](#-the-dashboard--19-layers--6-sub-layers) · [Subcommands](#-subcommands) · [Philosophy](#-philosophy)
 
@@ -48,6 +51,41 @@ $ /gbrain sync
 **One command. Five orchestrated steps. Zero broken brains.**
 
 ---
+
+## 🆕 New — one brain, eight clients (2026-09-28)
+
+GBrain speaks MCP, so anything that speaks MCP can share the same memory. Write a decision
+in Claude Code at 2am, ask Grok about it at noon — same brain.
+
+| Client | Transport | Auth |
+|---|---|---|
+| Claude Code (CLI) | stdio | local |
+| Cursor | HTTP | static Bearer |
+| Claude.ai web / app | HTTP | OAuth 2.1 + PKCE (DCR) |
+| ChatGPT app | HTTP | OAuth 2.1 |
+| **Grok** (grok.com) | HTTP | OAuth 2.1 + PKCE |
+| Codex CLI | HTTP | static Bearer |
+| OpenClaw / Telegram | stdio | local |
+| HERMES / WhatsApp | stdio | local |
+
+Setup for each is in [`shared/gbrain/CONNECT.md`](shared/gbrain/CONNECT.md), including the
+**Grok `redirect_uri` trap** — Grok never shows its callback URL in the connector form, so a
+client registered with the wrong one dies at `invalid_redirect_uri` *before* the login screen
+and reads like a server fault. It uses two callbacks; both must be registered.
+
+**Layer 18 of the dashboard now verifies each client with a real MCP handshake**, not by
+checking that a token row exists — a revoked token still shows up in `gbrain auth list`.
+A `200` on `/oauth/token` only proves authentication: until a `tools/list` arrives from that
+user-agent, the client has not touched the brain.
+
+### Also new
+
+- **`maintenance.sh autofix`** (nightly, 03:30 UTC) — goes after the backlogs that `/gbrain fix`
+  leaves untouched: conversation facts, atoms, links and timeline. Delivers each step to
+  Telegram as it completes, so a timeout in step 3 cannot swallow steps 1–2.
+- **SOUL.md is reported, never auto-restored.** `sync` pulls from canonical, and the live copy
+  is often *ahead* — on 2026-09-28 a blind restore would have deleted rules the live file had
+  and canonical did not. A fix that destroys work is worse than the warning.
 
 ## 🤯 Why this exists
 
@@ -231,7 +269,7 @@ They are **separate by design and never touch each other.** A skill that lives *
 - 🧠 [garrytan/gbrain](https://github.com/garrytan/gbrain) — the underlying brain database + CLI (by Garry Tan, CEO of YC)
 - 🛰️ [durang/gbrain-http-wrapper](https://github.com/durang/gbrain-http-wrapper) — OAuth 2.1 + PKCE wrapper extending GBrain to web/mobile/Desktop
 - 💬 [durang/whatsapp-monitor](https://github.com/durang/whatsapp-monitor) — companion repo with bridge patches, contact templates, security-blindada block, sync scripts
-- 📦 ~~[durang/gbrain-skill](https://github.com/durang/gbrain-skill)~~ — **ARCHIVED 2026-05-17** — content moved canonically to `shared/gbrain/` here
+- 📦 [durang/gbrain-skill](https://github.com/durang/gbrain-skill) — **deprecated** 2026-05-17 (still public; not GitHub-archived) — content moved canonically to `shared/gbrain/` here
 
 ---
 
