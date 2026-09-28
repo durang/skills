@@ -24,7 +24,7 @@ tg_send() {
   token=$(python3 -c "import json; print(json.load(open('$HOME_DIR/.openclaw/openclaw.json'))['channels']['telegram']['botToken'])" 2>/dev/null)
   [ -z "$token" ] && { log "alert: no bot token"; return 1; }
   curl -sS -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-    --data-urlencode "chat_id=1439730479" \
+    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID:?define TELEGRAM_CHAT_ID}" \
     --data-urlencode "text=$msg" >/dev/null 2>&1
 }
 

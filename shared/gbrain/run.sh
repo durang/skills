@@ -1540,7 +1540,7 @@ for line in sys.stdin:
 $NEW_FULL
 Run /gbrain en Telegram para detalle.")
         curl -sS -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
-          --data-urlencode "chat_id=1439730479" \
+          --data-urlencode "chat_id=${TELEGRAM_CHAT_ID:?define TELEGRAM_CHAT_ID}" \
           --data-urlencode "text=$MSG" \
           --data-urlencode "disable_notification=true" >/dev/null 2>&1 && \
           echo "_📱 Telegram drift alert sent (silent)._" || true
@@ -1575,13 +1575,16 @@ Run /gbrain en Telegram para detalle.")
   # apareciendo en `gbrain auth list`.
   # Grok EXIGE URL pública — si el Funnel se cae, Grok pierde el brain
   # aunque Cursor (vía tailnet) siga funcionando.
+  # Sin WRAPPER_URL no hay nada que sondear — y NUNCA hardcodear el host aquí:
+  # este repo es PÚBLICO y el endpoint es infraestructura privada del usuario.
   for _c in cursor grok; do
+    [ -z "${WRAPPER_URL:-}" ] && { echo "| **${_c}** (MCP Bearer/OAuth) | — | — | define WRAPPER_URL en ~/.gbrain/gbrain-direct.env |"; continue; }
     _n=$(gbrain auth list 2>/dev/null | grep -cE "(^|[[:space:]])${_c}([[:space:]]|$)" || true)
     _cfg=$([ "$_c" = cursor ] && echo '~/.cursor/mcp.json' || echo 'grok.com/connectors → Custom')
     if [ "${_n:-0}" -eq 0 ]; then
       echo "| **${_c}** (MCP Bearer) | ❌ sin token | — | créalo: gbrain auth create \"${_c}\" |"
     else
-      _hs=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 -X POST "${WRAPPER_URL:-https://jarvis-v3.tail9d7ae1.ts.net/mcp}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' 2>/dev/null)
+      _hs=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 -X POST "${WRAPPER_URL}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' 2>/dev/null)
       if [ "$_hs" = "401" ]; then
         echo "| **${_c}** (MCP Bearer) | ✅ token activo | endpoint vivo | config en ${_cfg} |"
       else
