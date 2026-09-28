@@ -1,6 +1,6 @@
 # Connecting Multiple Clients to One GBrain
 
-Practical reference for sharing one brain across multiple AI clients (Claude Code, Cursor, Windsurf, Claude Desktop, claude.ai web, mobile). Verified against `gbrain` v0.21.0 with Supabase Postgres engine.
+Practical reference for sharing one brain across multiple AI clients (Claude Code, Cursor, Windsurf, Claude Desktop, claude.ai web, mobile). Verified against `gbrain` v0.50.5.0 with Supabase Postgres engine (last live check 2026-09-28: 8 clients, 30,562 pages).
 
 ## TL;DR
 
@@ -9,15 +9,17 @@ Practical reference for sharing one brain across multiple AI clients (Claude Cod
 
 ## Compatibility matrix
 
-| Client | Runs on | Transport needed | Possible today? | How |
+| Client | Runs on | Transport | Estado | Cómo |
 |---|---|---|---|---|
-| Claude Code (any host) | local machine | stdio | ✅ Yes | `claude mcp add gbrain -- gbrain serve` |
-| Cursor | local machine | stdio | ✅ Yes | Add MCP server entry in Cursor settings |
-| Windsurf | local machine | stdio | ✅ Yes | Add MCP server entry in Windsurf settings |
-| Claude Desktop | local machine | HTTP + OAuth 2.1 | ✅ Yes | See [PHASE_4_GUIDE.md](PHASE_4_GUIDE.md) — HTTP wrapper + OAuth |
-| claude.ai web (incl. Cowork) | Anthropic servers | HTTP + OAuth 2.1 | ✅ Yes | See [PHASE_4_GUIDE.md](PHASE_4_GUIDE.md) — HTTP wrapper + OAuth + public URL |
-| Claude mobile (iOS/Android) | Anthropic servers | HTTP + OAuth 2.1 | ✅ Yes | Same connector as web (account-level) — see [PHASE_4_GUIDE.md](PHASE_4_GUIDE.md) |
-| Perplexity | Perplexity servers | HTTP + Bearer | ✅ Yes | HTTP wrapper alone (Bearer-only, no OAuth required) |
+| Claude Code (CLI) | máquina local | stdio | ✅ en producción | `claude mcp add gbrain -- gbrain serve` |
+| Cursor | Mac/PC | **HTTP + Bearer** | ✅ en producción | `~/.cursor/mcp.json` con `url` + header `Authorization: Bearer <token>` |
+| Cursor (alternativa) | máquina local | stdio | ✅ | entrada MCP apuntando a `gbrain serve` |
+| Claude.ai web / app | servidores Anthropic | HTTP + OAuth 2.1 | ✅ en producción | wrapper + DCR (registro dinámico) |
+| ChatGPT app | servidores OpenAI | HTTP + OAuth 2.1 | ✅ en producción | wrapper + OAuth |
+| Codex CLI | local + Mac | HTTP + Bearer | ✅ en producción | token estático |
+| **Grok** (grok.com) | servidores xAI | **HTTP + OAuth 2.1** | ✅ en producción | grok.com/connectors → Custom. **Ver la trampa de redirect_uri abajo** |
+| OpenClaw / Telegram | EC2 | stdio | ✅ en producción | MCP registrado + SOUL.md |
+| Hermes | EC2 | stdio | ✅ en producción | `hermes claw migrate` importa el skill |
 
 ## How shared brain works (architecture)
 
@@ -94,24 +96,74 @@ For other stdio clients (Cursor, Windsurf), add this entry in their MCP config:
 }
 ```
 
-## What about HTTP / Claude Desktop / claude.ai web?
+## Clientes HTTP — el wrapper ya está en producción
 
-You have three real options today, ordered by effort:
+`gbrain-http-wrapper` (Bun + Hono, puerto 8787) es un front-end HTTP sobre el `gbrain serve`
+de stdio. Publicado con Tailscale Funnel. Soporta **dos rutas de auth sobre la misma tabla
+`access_tokens`**:
 
-### Option A — Wait for upstream HTTP transport
-The README of `gbrain` says `gbrain serve --http` is on the roadmap. When it lands, this CONNECT.md will be updated with the canonical activation.
+### Ruta 1 — Bearer estático (Cursor, Codex, scripts)
 
-### Option B — Run a custom HTTP wrapper
-Write a small Bun/Hono service that:
-1. Accepts HTTP requests with `Authorization: Bearer <token>` (validated against tokens created via `bun run src/commands/auth.ts create`)
-2. Spawns `gbrain serve` as a stdio child per request (or maintains a pool)
-3. Pipes the MCP JSON-RPC frames between HTTP and stdio
-4. Returns the response
+```bash
+gbrain auth create "cursor"     # imprime gbrain_<64-hex> UNA sola vez
+gbrain auth revoke "cursor"     # revocar
+```
 
-Then expose it publicly via Tailscale Funnel (free, recommended) or ngrok ($8/mo Hobby for a fixed domain). Token-per-client gives you revocation. Reference: [docs/mcp/DEPLOY.md](https://github.com/garrytan/gbrain/blob/main/docs/mcp/DEPLOY.md) and [docs/mcp/ALTERNATIVES.md](https://github.com/garrytan/gbrain/blob/main/docs/mcp/ALTERNATIVES.md).
+Cursor — `~/.cursor/mcp.json`:
 
-### Option C — Contribute the wrapper upstream
-Submit a PR to `garrytan/gbrain` adding `gbrain serve --http` natively. This unlocks Claude Desktop, web, and mobile for every GBrain user, not just you.
+```json
+{ "mcpServers": { "gbrain": {
+    "url": "https://<tu-host>.ts.net/mcp",
+    "headers": { "Authorization": "Bearer gbrain_..." } } } }
+```
+
+### Ruta 2 — OAuth 2.1 + PKCE (claude.ai, ChatGPT, Grok)
+
+Estos clientes no aceptan pegar un token; exigen el baile OAuth completo. El wrapper expone
+`/.well-known/oauth-authorization-server`, `/oauth/authorize`, `/oauth/token` y
+`/oauth/register` (DCR).
+
+**⚠️ TRAMPA DE GROK — redirect_uri (costó un ciclo completo el 2026-09-28).**
+Grok **no muestra su callback** en el formulario, y si registras el cliente con la URL
+equivocada la autorización muere en `{"error":"invalid_redirect_uri"}` **antes** de la
+pantalla de login. Grok usa DOS callbacks y hay que registrar ambos:
+
+```
+https://grok.com/connectors/oauth/callback
+https://grok.com/connectors-oauth-exchange-code/
+```
+
+Registro del cliente:
+
+```bash
+curl -X POST https://<tu-host>.ts.net/mcp/oauth/register \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"grok",
+       "redirect_uris":["https://grok.com/connectors/oauth/callback",
+                        "https://grok.com/connectors-oauth-exchange-code/"],
+       "grant_types":["authorization_code","refresh_token"],
+       "response_types":["code"],
+       "token_endpoint_auth_method":"none"}'
+```
+
+Lo que devuelve `client_id` va en grok.com/connectors → Custom, junto con los endpoints de
+authorize/token, ámbito `mcp`, y método de auth **"ninguno (solo PKCE)"**. El secreto de
+cliente se deja vacío: es un cliente público.
+
+**Grok exige URL alcanzable desde internet.** Si el Funnel se cae, Grok pierde el brain
+aunque Cursor siga funcionando por tailnet — por eso el Layer 18 del dashboard los lista
+en filas separadas.
+
+### Verificar que un cliente quedó conectado de verdad
+
+No basta con que la UI diga "conectado". Mira el tráfico real:
+
+```bash
+journalctl --user -u gbrain-http-wrapper --since "30 min ago" | grep -oE 'ua="[^"]+"' | sort | uniq -c
+```
+
+Un `POST /oauth/token 200` sólo prueba que se autenticó. Hasta que no veas un `tools/list`
+o un `tools/call` de ese user-agent, el cliente no ha ejercitado el brain.
 
 ## Verifying "shared brain" claims
 
