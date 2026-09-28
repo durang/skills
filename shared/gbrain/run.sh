@@ -1567,6 +1567,28 @@ Run /gbrain en Telegram para detalle.")
   echo "| **OpenClaw / Telegram** (SOUL.md instructions) | $([ "$OC_SOUL" = "yes" ] && echo "✅" || echo "❌") | $([ "$OC_SOUL" = "yes" ] && echo "via brain-write-macro v$CI_VERSION ✅" || echo "—") | $([ "$OC_SOUL" = "yes" ] && echo "model reads SOUL.md → calls gbrain__put_page" || echo "SOUL.md missing brain-write-macro reference") |"
   echo "| **HERMES** (importado vía hermes claw migrate) | $([ "$HERMES_BWM" != "n/a" ] && echo "✅" || echo "❌") | $([ "$HERMES_BWM" = "$CI_VERSION" ] && echo "v$HERMES_BWM ✅" || echo "v$HERMES_BWM ⚠️ stale (run \`hermes claw migrate --overwrite\`)") | $([ "$HERMES_BWM" != "n/a" ] && echo "parallel runtime, importa skill" || echo "hermes no instalado o sin skills") |"
   echo "| **Claude.ai web/app** (HTTP+OAuth connector) | $([ -n "$WRAPPER_URL" ] && echo "✅ $WRAPPER_URL" || echo "❌ wrapper URL desconocida") | $([ "$CI_APPLIED" = "$CI_VERSION" ] && echo "v$CI_APPLIED ✅" || echo "v$CI_APPLIED 🔴 OUT OF SYNC con spec v$CI_VERSION") | $([ "$CI_APPLIED" = "$CI_VERSION" ] && echo "custom instructions al día — paste in claude.ai → Profile" || echo "🚨 RIESGO: chatbot puede crear duplicados/meta-pages — corre \`/gbrain custom-instructions --adaptive\` y pega en claude.ai") |"
+
+  # ── Clientes Bearer añadidos 2026-09-28 (Cursor + Grok) ──────────────
+  # Ambos hablan el MISMO endpoint HTTP que claude.ai, pero con token
+  # estático en vez del baile OAuth. Se verifica con un handshake REAL al
+  # endpoint, no mirando si el token existe: un token revocado sigue
+  # apareciendo en `gbrain auth list`.
+  # Grok EXIGE URL pública — si el Funnel se cae, Grok pierde el brain
+  # aunque Cursor (vía tailnet) siga funcionando.
+  for _c in cursor grok; do
+    _n=$(gbrain auth list 2>/dev/null | grep -cE "(^|[[:space:]])${_c}([[:space:]]|$)" || true)
+    _cfg=$([ "$_c" = cursor ] && echo '~/.cursor/mcp.json' || echo 'grok.com/connectors → Custom')
+    if [ "${_n:-0}" -eq 0 ]; then
+      echo "| **${_c}** (MCP Bearer) | ❌ sin token | — | créalo: gbrain auth create \"${_c}\" |"
+    else
+      _hs=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 -X POST "${WRAPPER_URL:-https://jarvis-v3.tail9d7ae1.ts.net/mcp}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' 2>/dev/null)
+      if [ "$_hs" = "401" ]; then
+        echo "| **${_c}** (MCP Bearer) | ✅ token activo | endpoint vivo | config en ${_cfg} |"
+      else
+        echo "| **${_c}** (MCP Bearer) | ⚠️ token activo | endpoint HTTP ${_hs} | revisa wrapper + tailscale funnel status |"
+      fi
+    fi
+  done
   echo ""
   if [ "$CI_APPLIED" != "$CI_VERSION" ]; then
     echo "🔴 **Acción urgente:** las custom instructions de claude.ai están desactualizadas (v$CI_APPLIED vs v$CI_VERSION). Ejecuta:"
