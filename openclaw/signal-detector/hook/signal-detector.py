@@ -255,12 +255,37 @@ SLUG_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)*
 
 WRITE_FAILURES_LOG = HOME / ".gbrain/hooks/write-failures.log"
 
-def _log_write_failure(slug: str, reason: str, stderr: str = "") -> None:
+def _log_write_failure(slug: str, reason: str, stderr: str = "",
+                      page: str | None = None) -> None:
+    """Record a failed write — and, when the page body is known, keep it.
+
+    The log used to store slug + reason only. That tells you a capture died but
+    not what died: on 2026-09-28 a migration blocked every write for hours and
+    8 pages per session were lost with no way to replay them. A reason without
+    the payload is a postmortem, not a recovery.
+
+    Pages land in ~/.gbrain/hooks/retry-queue/ as one .md per attempt; replay is
+    `for f in retry-queue/*.md; do gbrain put "$(basename "$f" .md | tr '~' '/')" < "$f"; done`
+    Slugs carry '/' so '~' stands in for it; the queue is chmod 700 because page
+    bodies are as sensitive as the brain itself.
+    """
     try:
         _ensure_secure(WRITE_FAILURES_LOG)
         with WRITE_FAILURES_LOG.open("a") as f:
             ts = datetime.now(timezone.utc).isoformat(timespec='seconds')
-            f.write(f"{ts}\tslug={slug}\treason={reason}\tstderr={stderr[:300]}\n")
+            queued = " queued=yes" if page else ""
+            f.write(f"{ts}\tslug={slug}\treason={reason}{queued}\tstderr={stderr[:300]}\n")
+    except Exception:
+        pass
+    if not page:
+        return
+    try:
+        q = HOME / ".gbrain/hooks/retry-queue"
+        q.mkdir(parents=True, exist_ok=True)
+        q.chmod(0o700)
+        f = q / (slug.replace("/", "~") + ".md")
+        f.write_text(page)
+        f.chmod(0o600)
     except Exception:
         pass
 
@@ -334,13 +359,13 @@ def write_to_gbrain(slug: str, title: str, body: str, session_id: str,
                            capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
             return True
-        _log_write_failure(slug, f"exit_{r.returncode}", r.stderr or r.stdout)
+        _log_write_failure(slug, f"exit_{r.returncode}", r.stderr or r.stdout, page)
         return False
     except subprocess.TimeoutExpired:
-        _log_write_failure(slug, "timeout")
+        _log_write_failure(slug, "timeout", "", page)
         return False
     except Exception as e:
-        _log_write_failure(slug, f"exception: {e}")
+        _log_write_failure(slug, f"exception: {e}", "", page)
         return False
 
 # ─── Main ────────────────────────────────────────────────
