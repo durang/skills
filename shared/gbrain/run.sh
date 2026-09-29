@@ -643,6 +643,46 @@ except Exception as e:
   done
   echo ""
 
+  # ─── Layer 6b: Write canary (¿el brain PUEDE escribir?) ───
+  # POR QUÉ EXISTE: el 2026-09-28 una migración dejó la fuente `default` sin dueño
+  # canónico y TODA escritura falló durante horas. El log del signal-detector
+  # imprimía "ok ... proposed=8/written=0" en cada sesión: contaba los fallos pero
+  # el renglón decía ok, así que nadie lo miró. Layer 6 muestra CUÁNTO se capturó;
+  # cero capturas es indistinguible de "no pasó nada interesante hoy".
+  # La única prueba de que se puede escribir es escribir. Esto hace un put real y
+  # lo borra — ~2s, una página efímera, y distingue las 4 causas que ya nos pegaron.
+  echo "## ✍️ Layer 6b — Write canary (prueba REAL de escritura)"
+  echo ""
+  echo "_¿Qué mido?_ Escribo una página de verdad y la borro. Layer 6 te dice cuánto se capturó; esto te dice si **se puede** capturar. Son cosas distintas: un brain que no escribe reporta cero capturas y parece un día tranquilo."
+  echo ""
+  CANARY_SLUG="concepts/gbrain-write-canary"
+  CANARY_OUT=$(printf -- '---\ntype: concepts\ntitle: Write canary\nsources:\n  - date: %s\n    channel: gbrain-check-canary\n    session_id: canary\n---\n\nPagina efimera del Layer 6b. Se borra sola.\n' "$(date -u +%Y-%m-%d)" \
+    | (cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 120 "$HOME_DIR/.bun/bin/gbrain" put "$CANARY_SLUG" 2>&1) || true)
+  if echo "$CANARY_OUT" | grep -q '"committed"'; then
+    echo "| Resultado | Detalle |"; echo "|---|---|"
+    echo "| ✅ **El brain SÍ escribe** | put real → \`committed\`, página borrada |"
+    (cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 120 "$HOME_DIR/.bun/bin/gbrain" delete "$CANARY_SLUG" --force >/dev/null 2>&1) || true
+  else
+    echo "| Resultado | Causa | Qué hacer |"; echo "|---|---|---|"
+    if echo "$CANARY_OUT" | grep -qi "owner_unavailable\|no designated canonical owner"; then
+      echo "| 🔴 **NO ESCRIBE** | fuente sin dueño canónico (migración v0.53.0) | \`gbrain sources writer status --json\` → luego \`writer claim <source> --path <dir>\` |"
+      ALERTS+=("🔴 GBrain NO PUEDE ESCRIBIR — fuente sin dueño canónico. Layer 6b.")
+    elif echo "$CANARY_OUT" | grep -qi "no credits\|insufficient_quota\|credit balance"; then
+      echo "| 🔴 **NO ESCRIBE** | OpenAI sin saldo — el embed falla y el put aborta | recarga en platform.openai.com/settings/organization/billing |"
+      ALERTS+=("🔴 GBrain NO PUEDE ESCRIBIR — OpenAI sin saldo. Layer 6b.")
+    elif echo "$CANARY_OUT" | grep -qi "R2: page\|needs a sources stamp"; then
+      echo "| 🟠 **Rechazo R2** | el trigger pidió el sello \`sources\` y el canario no lo mandó | revisa el frontmatter que emite este layer |"
+      ALERTS+=("🟠 Write canary rechazado por el trigger R2. Layer 6b.")
+    else
+      echo "| 🔴 **NO ESCRIBE** | causa desconocida | \`cd ~/gbrain && gbrain put concepts/test < archivo.md\` para ver el error completo |"
+      ALERTS+=("🔴 GBrain NO PUEDE ESCRIBIR — causa desconocida. Layer 6b.")
+    fi
+    echo ""
+    echo "<details><summary>salida cruda</summary>"
+    echo ""; echo '```'; echo "$CANARY_OUT" | tail -6; echo '```'; echo "</details>"
+  fi
+  echo ""
+
   # ─── Layer 7: Bugs upstream que te afectan ───
   echo "## 🐛 Layer 7 — Bugs upstream conocidos (que afectan TU setup)"
   echo ""
