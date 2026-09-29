@@ -36,3 +36,4 @@ tmp/
 # Skills that exist locally but haven't been productionized yet (no distribute-to:
 # frontmatter aún — no se sube hasta que la migremos formalmente).
 shared/reclip/
+__pycache__/
