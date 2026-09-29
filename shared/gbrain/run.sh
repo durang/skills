@@ -2847,7 +2847,7 @@ PROCEDURE:
        session_id: <opaque short id from this conversation>
    If sources already exists in the page, APPEND not REPLACE.
 
-4.6. R6 EFFECTIVE DATE + RELATED WIKILINKS (v4.2):
+4.6. R6 EFFECTIVE DATE + RELATED WIKILINKS:
    - Decisions/originals/dated events get frontmatter effective_date: YYYY-MM-DD
      (the date it HAPPENED, usually today). Timeless entities/concepts omit it.
    - Every page body ENDS with a Related section of 1-3 wikilinks to
@@ -2857,6 +2857,20 @@ PROCEDURE:
      - [[people/jane-doe]]
    - Reason: gbrain builds the timeline from effective_date and the knowledge
      graph from [[wikilinks]]. A page without them is an orphan.
+
+4.7. R7 TRAINING + INNER STATE (v4.3) — PASSIVE capture only:
+   - Workouts ("hoy entrene", "fui al gym", "me toco pierna", "hazme una rutina"):
+     put_page slug:"training/rutinas/<slug>" type:"training"   (the routine itself)
+     put_page slug:"training/sesiones/YYYY-MM-DD" type:"training"  (what was done)
+     HARD RULE: every session ENDS with ## Related linking to its current routine.
+     Never invent weights, sets or reps I did not state.
+   - Friction and inner state ("esto me frustra", "me tiene harto", "me confunde",
+     "estoy emocionado con"):
+     put_page slug:"reflections/YYYY-MM-DD-<tema>" type:"reflection"
+     Capture the WHY, never a label or a 1-10 scale.
+     NEVER ask "how do you feel?" and never open a turn with my emotional state.
+     Report a pattern (same theme 3+ times), not an episode.
+   - NEVER use notes/ — it is not a declared type in the pack.
 
 5. CREATE LINKS for cross-references with gbrain__add_link:
    - Person works at Company → from:"people/x" to:"companies/y" type:"works_at"
