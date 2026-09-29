@@ -655,13 +655,17 @@ except Exception as e:
   echo ""
   echo "_¿Qué mido?_ Escribo una página de verdad y la borro. Layer 6 te dice cuánto se capturó; esto te dice si **se puede** capturar. Son cosas distintas: un brain que no escribe reporta cero capturas y parece un día tranquilo."
   echo ""
+  # --force a proposito: el slug es fijo y reusado en cada corrida, asi que a
+  # partir de la segunda vez el put choca con la revision anterior
+  # (revision_conflict) aunque la pagina este borrada — la tumba conserva la
+  # revision. Sin esto el canario se reporta roto a si mismo.
   CANARY_SLUG="concepts/gbrain-write-canary"
   CANARY_OUT=$(printf -- '---\ntype: concepts\ntitle: Write canary\nsources:\n  - date: %s\n    channel: gbrain-check-canary\n    session_id: canary\n---\n\nPagina efimera del Layer 6b. Se borra sola.\n' "$(date -u +%Y-%m-%d)" \
-    | (cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 120 "$HOME_DIR/.bun/bin/gbrain" put "$CANARY_SLUG" 2>&1) || true)
+    | (cd "$HOME/gbrain" 2>/dev/null; timeout 120 "$HOME/.bun/bin/gbrain" put "$CANARY_SLUG" --force 2>&1) || true)
   if echo "$CANARY_OUT" | grep -q '"committed"'; then
     echo "| Resultado | Detalle |"; echo "|---|---|"
     echo "| ✅ **El brain SÍ escribe** | put real → \`committed\`, página borrada |"
-    (cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 120 "$HOME_DIR/.bun/bin/gbrain" delete "$CANARY_SLUG" --force >/dev/null 2>&1) || true
+    (cd "$HOME/gbrain" 2>/dev/null; timeout 120 "$HOME/.bun/bin/gbrain" delete "$CANARY_SLUG" --force >/dev/null 2>&1) || true
   else
     echo "| Resultado | Causa | Qué hacer |"; echo "|---|---|---|"
     if echo "$CANARY_OUT" | grep -qi "owner_unavailable\|no designated canonical owner"; then
