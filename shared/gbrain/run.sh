@@ -687,6 +687,36 @@ except Exception as e:
   fi
   echo ""
 
+  # ─── Layer 6c: Frescura de conectores de historial ───
+  # POR QUÉ MIDE PÁGINAS Y NO LA CREDENCIAL: `gbrain connectors status` lee
+  # ~/.gbrain/connectors/, que es filesystem LOCAL. El sync de ChatGPT/Claude
+  # corre desde la Mac (Cloudflare bloquea el fetch server-side desde la IP de
+  # datacenter del EC2), así que ese estado no es visible desde aquí — pero las
+  # páginas que produce sí aterrizan en la base compartida.
+  # Una cookie de sesión caduca en días. Medir la última página del canal detecta
+  # eso desde cualquier host, y mide el resultado en vez de la credencial.
+  echo "## 🔄 Layer 6c — Frescura de conectores de historial"
+  echo ""
+  echo "_¿Qué mido?_ Cuándo llegó la última página de cada cliente de chat. Las cookies caducan en días; si el canal se seca, el conector murió aunque su estado local diga que está bien."
+  echo ""
+  echo "| Canal | Páginas | Última | Estado |"
+  echo "|---|---|---|---|"
+  for _ch in chatgpt claude-ai-web; do
+    _row=$(PGPASSWORD=$PASSWORD psql "$DATABASE_URL" -tAF'|' -c "SELECT COUNT(*), COALESCE(max(created_at)::date::text,'nunca'), COALESCE((now()::date - max(created_at)::date)::text,'-') FROM pages WHERE deleted_at IS NULL AND frontmatter->'sources'->0->>'channel' = '${_ch}'" 2>/dev/null | head -1)
+    _n=$(echo "$_row" | cut -d'|' -f1); _last=$(echo "$_row" | cut -d'|' -f2); _age=$(echo "$_row" | cut -d'|' -f3)
+    if [ "${_n:-0}" -eq 0 ] 2>/dev/null; then
+      echo "| ${_ch} | 0 | — | ⚪ sin configurar — \`gbrain connectors auth\` desde la Mac |"
+    elif [ "${_age:-0}" -gt 7 ] 2>/dev/null; then
+      echo "| ${_ch} | ${_n} | ${_last} | 🔴 **${_age}d sin sincronizar** — cookie caducada, re-autentica |"
+      ALERTS+=("🔴 Conector ${_ch} sin páginas nuevas en ${_age} días — la cookie caducó.")
+    elif [ "${_age:-0}" -gt 2 ] 2>/dev/null; then
+      echo "| ${_ch} | ${_n} | ${_last} | 🟡 ${_age}d sin novedad |"
+    else
+      echo "| ${_ch} | ${_n} | ${_last} | ✅ al día |"
+    fi
+  done
+  echo ""
+
   # ─── Layer 7: Bugs upstream que te afectan ───
   echo "## 🐛 Layer 7 — Bugs upstream conocidos (que afectan TU setup)"
   echo ""
