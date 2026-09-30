@@ -171,10 +171,55 @@ cmd_autofix() {
 }
 
 
+# ── backup: pg_dump semanal del brain, VALIDADO por conteo ────────────────────
+# pg_dump contra un servidor MÁS NUEVO que él (Supabase es PG 17.6, el cliente del EC2
+# es 15) sale con exit 0 y deja un .gz de 20 bytes: un respaldo que parece respaldo.
+# El 2026-09-28 pasó exactamente eso, y el segundo intento se cortó a 9MB. Por eso:
+# cliente PG17 en docker, y el archivo solo cuenta si el CONTENIDO cuadra con la base
+# viva (tablas + filas de pages), no si existe o pesa algo.
+# Nota: cleanup (dom 15:00) hace `docker image prune`, así que la imagen se vuelve a
+# bajar en cada corrida; docker run la baja solo.
+cmd_backup() {
+  local dir="$HOME_DIR/backups/gbrain-db" keep=2 url out envf rc tables=0 rows=0 live free_g why=""
+  mkdir -p "$dir"; chmod 700 "$dir"; rm -f "$dir"/*.partial
+  url="${GBRAIN_DATABASE_URL:-${DATABASE_URL:-}}"
+  if [ -z "$url" ]; then tg_send "🔴 backup del brain: sin GBRAIN_DATABASE_URL en el entorno"; log "backup: no url"; return 1; fi
+  free_g=$(df -BG --output=avail "$HOME_DIR" | tail -1 | tr -dc '0-9')
+  if [ "${free_g:-0}" -lt 2 ]; then tg_send "🔴 backup del brain omitido: solo ${free_g}G libres"; log "backup: low disk ${free_g}G"; return 1; fi
+  out="$dir/gbrain-db-$(date -u +%Y%m%d-%H%M).sql.gz"
+  envf=$(mktemp /var/tmp/pgenv.XXXXXX); chmod 600 "$envf"; printf 'PGURL=%s\n' "$url" > "$envf"
+  log "backup: start -> $out"
+  timeout 3000 docker run --rm --env-file "$envf" postgres:17-alpine sh -c 'pg_dump "$PGURL" --no-owner --no-acl' 2>"$dir/last-error.log" | gzip -6 > "$out.partial"
+  rc=${PIPESTATUS[0]}
+  rm -f "$envf"
+  if [ "$rc" -ne 0 ]; then why="pg_dump salió con código $rc"
+  elif ! gzip -t "$out.partial" 2>/dev/null; then why="gzip corrupto"
+  else
+    read -r tables rows < <(zcat "$out.partial" | awk '/^CREATE TABLE /{t++} /^COPY public\.pages /{f=1;next} f&&/^\\\.$/{f=0} f{r++} END{print t+0, r+0}')
+    live=$(cd "$HOME_DIR/gbrain" 2>/dev/null; timeout 120 "$HOME_DIR/.bun/bin/gbrain" stats 2>/dev/null | awk '/^Pages:/{print $2; exit}')
+    if [ "${tables:-0}" -lt 50 ]; then why="solo ${tables:-0} tablas en el dump"
+    elif [ -z "${live:-}" ] || [ "$live" -lt 1 ]; then why="no pude leer el conteo vivo para validar"
+    elif [ $(( ${rows:-0} * 100 )) -lt $(( live * 95 )) ]; then why="el dump trae ${rows:-0} filas de pages y la base viva tiene $live"; fi
+  fi
+  if [ -n "$why" ]; then
+    rm -f "$out.partial"
+    log "backup: FAIL — $why | $(head -c 200 "$dir/last-error.log" 2>/dev/null | tr '\n' ' ' | sed -E 's#postgres(ql)?://[^ ]+#<url>#g')"
+    tg_send "🔴 respaldo del brain FALLÓ: $why. Se conservan los anteriores."
+    return 1
+  fi
+  mv "$out.partial" "$out"; chmod 600 "$out"
+  ls -1t "$dir"/gbrain-db-*.sql.gz 2>/dev/null | tail -n +$((keep+1)) | xargs -r rm -f
+  log "backup: ok $(du -h "$out" | cut -f1) tables=$tables pages=$rows live=$live"
+  tg_send "✅ respaldo del brain: $(du -h "$out" | cut -f1) · $tables tablas · $rows filas de pages (vivo: $live) · se conservan $keep"
+  return 0
+}
+
+
 case "${1:-}" in
   cleanup) cmd_cleanup ;;
   backfill-dates) cmd_backfill_dates ;;
   alert)   cmd_alert ;;
   autofix) cmd_autofix ;;
-  *) echo "usage: $0 {cleanup|alert|backfill-dates|autofix}"; exit 1 ;;
+  backup)  cmd_backup ;;
+  *) echo "usage: $0 {cleanup|alert|backfill-dates|autofix|backup}"; exit 1 ;;
 esac
