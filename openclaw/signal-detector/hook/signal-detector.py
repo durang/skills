@@ -264,10 +264,11 @@ def _log_write_failure(slug: str, reason: str, stderr: str = "",
     8 pages per session were lost with no way to replay them. A reason without
     the payload is a postmortem, not a recovery.
 
-    Pages land in ~/.gbrain/hooks/retry-queue/ as one .md per attempt; replay is
-    `for f in retry-queue/*.md; do gbrain put "$(basename "$f" .md | tr '~' '/')" < "$f"; done`
-    Slugs carry '/' so '~' stands in for it; the queue is chmod 700 because page
-    bodies are as sensitive as the brain itself.
+    Pages land in ~/.gbrain/hooks/retry-queue/ as one .md per attempt ('~' stands in for
+    '/' in the slug); the queue is chmod 700 because page bodies are as sensitive as the
+    brain itself. Replay with `python3 replay-retry-queue.py [--dry-run]` — NOT a bare
+    `gbrain put` per file: a put onto an existing slug is what got most of them queued
+    (revision_conflict), so replay would fail the same way.
     """
     try:
         _ensure_secure(WRITE_FAILURES_LOG)
