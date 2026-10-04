@@ -19,7 +19,7 @@ Wire-up: ~/.claude/settings.json hooks.Stop entry running:
 """
 
 from __future__ import annotations
-import json, os, sys, shutil, subprocess, time, urllib.request, urllib.error
+import json, os, re, sys, shutil, subprocess, time, urllib.request, urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -302,6 +302,102 @@ DATE_RE = __import__("re").compile(r"^\d{4}-\d{2}-\d{2}$")
 # undeclared namespace shows up as type drift in `gbrain doctor`.
 ALLOWED_NAMESPACES = {"decisions", "originals", "concepts", "people", "companies"}
 
+def _clean_err(s: str, n: int = 300) -> str:
+    """Keep the REAL error of a gbrain call, not its banners.
+
+    gbrain prints an upgrade notice and a PgBouncer note before anything else; with the
+    300-char cap they ate the whole budget, so write-failures.log never said WHY a put
+    failed. It took a manual replay to learn 16 queued pages were dying on
+    revision_conflict.
+    """
+    noise = re.compile(r"^(UPGRADE_AVAILABLE|gbrain \d[\d.]* -> |\[gbrain\]|\[config\]|\[env\])")
+    keep = [l.strip() for l in (s or "").splitlines() if l.strip() and not noise.match(l.strip())]
+    return " | ".join(keep)[-n:]
+
+
+def _gb(args: list, stdin: str | None = None, timeout: int = 30):
+    return subprocess.run([GBRAIN_BIN, *args], input=stdin, env=subprocess_env(),
+                          capture_output=True, text=True, timeout=timeout)
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip().lower()
+
+
+def merge_into_existing(slug: str, new_body: str, links: list, entry: dict, today: str) -> str:
+    """The page already exists: APPEND this capture instead of replacing the page.
+
+    Since gbrain 0.5x a bare `put` onto an existing slug needs `--expected-revision`
+    (or `--force`). The hook used neither, so every re-capture of a topic it had
+    already written was rejected with revision_conflict and the capture lost — 16 of
+    16 pages in the retry queue were exactly that. `--force` would be worse: it
+    replaces a rich page with a thin one. So this does what the write macro asks of
+    every other client: read the page, append, add to `sources` (R2), keep Related,
+    and pass the revision it read (R9). Timeline and existing frontmatter are kept.
+
+    Returns "merged" | "duplicate" | a failure reason. "duplicate" counts as success:
+    the content is already in the page, nothing is lost.
+    """
+    try:
+        import yaml
+    except Exception:
+        return "no_pyyaml"
+    for attempt in (1, 2):
+        g = _gb(["get", slug, "--json"])
+        if g.returncode != 0:
+            return f"get_failed: {_clean_err(g.stderr or g.stdout)}"
+        try:
+            cur = json.loads(g.stdout[g.stdout.index("{"):])
+        except Exception:
+            return "get_unparseable"
+        rev = cur.get("revision")
+        if not rev:
+            return "no_revision"
+        fm = dict(cur.get("frontmatter") or {})
+        # title / type / effective_date live in their own columns, NOT in the frontmatter
+        # that `get --json` returns. Rebuilding the page from `fm` alone dropped the title:
+        # a merged page came back named after its slug ('Hook Merge Title 1791148866'
+        # instead of 'Titulo ORIGINAL'). Carry them over explicitly.
+        for k in ("title", "type"):
+            if cur.get(k) and k not in fm:
+                fm[k] = cur[k]
+        if cur.get("effective_date") and "effective_date" not in fm:
+            fm["effective_date"] = str(cur["effective_date"])[:10]
+        body = (cur.get("compiled_truth") or "").rstrip()
+        tl = (cur.get("timeline") or "").strip()
+        if _norm(new_body) in _norm(body):
+            return "duplicate"
+        src = fm.get("sources")
+        src = list(src) if isinstance(src, list) else []
+        src.append(entry)
+        fm["sources"] = src
+        update = f"## Actualización {today} (captura automática)\n\n{new_body.strip()}"
+        last = None
+        for last in re.finditer(r"(?m)^## Related\s*$", body):
+            pass
+        if last:
+            head, rel = body[:last.start()].rstrip(), body[last.start():]
+            have = set(re.findall(r"\[\[([^\]]+)\]\]", rel))
+            add = [l for l in links if l not in have and l != slug]
+            if add:
+                rel = rel.rstrip() + "\n" + "\n".join(f"- [[{l}]]" for l in add)
+            merged = f"{head}\n\n{update}\n\n{rel.strip()}"
+        else:
+            rel = ("\n\n## Related\n" + "\n".join(f"- [[{l}]]" for l in links if l != slug)) if links else ""
+            merged = f"{body}\n\n{update}{rel}"
+        out = ("---\n" + yaml.safe_dump(fm, sort_keys=False, allow_unicode=True, width=10**6)
+               + "---\n\n" + merged.strip() + "\n")
+        if tl:
+            out += "\n<!-- timeline -->\n" + tl + "\n"
+        r = _gb(["put", slug, "--expected-revision", rev], stdin=out)
+        if r.returncode == 0:
+            return "merged"
+        if "revision_conflict" in ((r.stdout or "") + (r.stderr or "")) and attempt == 1:
+            continue  # someone wrote between our read and our put: re-read, re-merge, once
+        return f"put_failed: {_clean_err(r.stderr or r.stdout)}"
+    return "conflict_twice"
+
+
 def write_to_gbrain(slug: str, title: str, body: str, session_id: str,
                     links: list | None = None, effective_date: str | None = None) -> bool:
     # Pre-validate slug to avoid wasted gbrain CLI invocations
@@ -359,7 +455,16 @@ def write_to_gbrain(slug: str, title: str, body: str, session_id: str,
                            capture_output=True, text=True, timeout=30)
         if r.returncode == 0:
             return True
-        _log_write_failure(slug, f"exit_{r.returncode}", r.stderr or r.stdout, page)
+        if "revision_conflict" in ((r.stdout or "") + (r.stderr or "")):
+            res = merge_into_existing(
+                slug, body, clean_links,
+                {"date": _now[:10], "channel": "claude-code-signal-detector", "session_id": session_id},
+                _now[:10])
+            if res in ("merged", "duplicate"):
+                return True
+            _log_write_failure(slug, f"merge_{res.split(':')[0]}", res, page)
+            return False
+        _log_write_failure(slug, f"exit_{r.returncode}", _clean_err(r.stderr or r.stdout), page)
         return False
     except subprocess.TimeoutExpired:
         _log_write_failure(slug, "timeout", "", page)
