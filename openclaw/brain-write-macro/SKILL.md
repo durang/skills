@@ -99,9 +99,9 @@ This skill defines the **canonical behavior** for the explicit-phrase trigger so
 
 ### R2 source-tracking channels (valid values)
 
-Vistos en produccion (2026-09-30): `claude-code-signal-detector`, `claude-code-stop-hook`, `claude-code-cli`, `claude-ai-web`, `chatgpt-app`, `codex-cli`, `telegram`, `whatsapp`, `openclaw-cron`, `cron-compound`, `cron-agentexpert`, `filesystem-import`, `http-wrapper`. Declarados pero aun no vistos: `openclaw`, `hermes`, `cron-dream`.
+Vistos en produccion: `claude-code-signal-detector`, `claude-code-stop-hook`, `claude-code-cli`, `claude-ai-web`, `chatgpt-app`, `codex-cli`, `cursor`, `grok`, `telegram`, `whatsapp`, `openclaw-cron`, `cron-compound`, `cron-agentexpert`, `filesystem-import`, `http-wrapper`. Declarados pero aun no vistos: `openclaw`, `hermes`, `cron-dream`.
 
-Limitacion conocida: el wrapper HTTP asigna el canal del lado servidor segun el token, con una lista escrita a mano. Cursor cae como `http-wrapper` y Grok (OAuth) como `claude-ai-web`, asi que hoy NO se distinguen de sus clientes hermanos.
+El wrapper HTTP asigna el canal del lado servidor (no depende de que el modelo siga las instrucciones) y marca su entrada con `stamped_by: wrapper`, que la distingue de un canal que el cliente solo declara. Desde 2026-10-04 clasifica los clientes OAuth por su `client_name` registrado (Claude, ChatGPT, grok) y los tokens estaticos por su nombre (`cursor`). Las paginas escritas ANTES de esa fecha pueden llevar Cursor como `http-wrapper` y Grok como `claude-ai-web`.
 
 ## Trigger phrases (ES + EN)
 

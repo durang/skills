@@ -716,11 +716,11 @@ except Exception as e:
   # eso desde cualquier host, y mide el resultado en vez de la credencial.
   echo "## 🔄 Layer 6c — Frescura de escritura por cliente web"
   echo ""
-  echo "_¿Qué mido?_ Cuándo llegó la última página de cada cliente web. El canal lo asigna el wrapper del lado servidor según el token, así que un cliente que deja de escribir (token revocado, conector roto, cookie caducada) se nota aquí desde cualquier host. Nota: Grok (OAuth) hoy cae como \`claude-ai-web\` y Cursor como \`http-wrapper\`; el wrapper aún no los distingue."
+  echo "_¿Qué mido?_ Cuándo llegó la última página de cada cliente web. El canal lo asigna el wrapper del lado servidor según el token, así que un cliente que deja de escribir (token revocado, conector roto, cookie caducada) se nota aquí desde cualquier host. Solo cuentan las **escrituras** (put_page): un cliente que únicamente lee no aparece aquí. Cursor y Grok se distinguen desde 2026-10-04; antes caían como \`http-wrapper\` y \`claude-ai-web\`."
   echo ""
   echo "| Canal | Páginas | Última | Estado |"
   echo "|---|---|---|---|"
-  for _ch in chatgpt-app claude-ai-web; do
+  for _ch in chatgpt-app claude-ai-web cursor grok; do
     _row=$(PGPASSWORD=$PASSWORD psql "$DATABASE_URL" -tAF'|' -c "SELECT COUNT(*), COALESCE(max(created_at)::date::text,'nunca'), COALESCE((now()::date - max(created_at)::date)::text,'-') FROM pages WHERE deleted_at IS NULL AND frontmatter->'sources'->0->>'channel' = '${_ch}'" 2>/dev/null | head -1)
     _n=$(echo "$_row" | cut -d'|' -f1); _last=$(echo "$_row" | cut -d'|' -f2); _age=$(echo "$_row" | cut -d'|' -f3)
     if [ "${_n:-0}" -eq 0 ] 2>/dev/null; then
