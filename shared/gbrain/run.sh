@@ -308,7 +308,7 @@ except: print(0)" 2>/dev/null)
   echo ""
   echo "_¿Qué mido?_ Si tu **GBrain** y **OpenClaw** locales están al día con lo último publicado por sus mantenedores. GBrain lo hace Garry Tan (CEO de Y Combinator), OpenClaw es de martian-engineering."
   echo ""
-  IGB=$(gbrain --version 2>&1 | head -1 | awk '{print $2}')
+  IGB=$(gbrain --version 2>&1 | awk '/^gbrain [0-9]/{print $2; exit}')
   LGB=$(curl -sS https://raw.githubusercontent.com/garrytan/gbrain/master/VERSION 2>/dev/null | tr -d '\n')
   IOC=$(openclaw --version 2>&1 | head -1 | awk '{print $2}')
   LOCS=$(npm view openclaw dist-tags.latest 2>/dev/null)
@@ -320,6 +320,25 @@ except: print(0)" 2>/dev/null)
   echo "|---|---|---|---|"
   echo "| GBrain | \`$IGB\` | \`$LGB\` | $GS |"
   echo "| OpenClaw | \`$IOC\` | \`$LOCS\` (beta=\`$LOCB\`) | $OS |"
+  # gstack: SOLO LECTURA. `save` corre diario desde cron y ejecuta este bloque; si aquí
+  # actualizara, el servidor haría un reset de la herramienta de diseño sin que nadie lo
+  # mire. La actualización vive en `/gbrain sync`. Aquí se compara el commit local contra el
+  # remoto con ls-remote (no escribe nada) y se avisa si lleva mucho atrás: estuvo 3 meses
+  # (jun→oct 2026) en 1.58.5.0 sin que ningún layer lo dijera.
+  GSD="$HOME/.claude/skills/gstack"
+  if [ -d "$GSD/.git" ]; then
+    GSV=$(tr -d ' \n' < "$GSD/VERSION" 2>/dev/null)
+    GSL=$(git -C "$GSD" rev-parse HEAD 2>/dev/null)
+    GSR=$(timeout 20 git -C "$GSD" ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}')
+    GSAGE=$(( ( $(date +%s) - $(git -C "$GSD" log -1 --format=%ct 2>/dev/null || echo 0) ) / 86400 ))
+    if [ -z "$GSR" ]; then GSS="⚪ no pude consultar el remoto"
+    elif [ "$GSL" = "$GSR" ]; then GSS="✅"
+    elif [ "$GSAGE" -gt 30 ]; then GSS="🔴 ${GSAGE}d atrás — corre \`/gbrain sync\`"; ALERTS+=("🔴 **gstack lleva ${GSAGE} días sin actualizar** (${GSV}) — corre \`/gbrain sync\`.")
+    else GSS="⚠️ hay update — corre \`/gbrain sync\`"; fi
+    echo "| gstack | \`${GSV:-?}\` (\`${GSL:0:7}\`) | \`${GSR:0:7}\` | $GSS |"
+  else
+    echo "| gstack | — | — | ⚪ no instalado en ~/.claude/skills/gstack |"
+  fi
   echo ""
 
   # ─── Layer 2: Runtime ───
@@ -1227,7 +1246,7 @@ PY
   # Last 15 commits on master with PR# and date
   echo "### 🔧 Últimos 15 commits en \`garrytan/gbrain\` (master)"
   echo ""
-  IGB_VERSION=$(gbrain --version 2>&1 | head -1 | awk '{print $2}')
+  IGB_VERSION=$(gbrain --version 2>&1 | awk '/^gbrain [0-9]/{print $2; exit}')
   curl -sS "https://api.github.com/repos/garrytan/gbrain/commits?per_page=15" 2>/dev/null | IGB_VERSION="$IGB_VERSION" python3 -c "
 import json, sys, os, re
 try:
@@ -1385,7 +1404,7 @@ except: pass
   }
 
   # Get versions
-  GBRAIN_CUR=$(gbrain --version 2>&1 | head -1 | awk '{print $2}')
+  GBRAIN_CUR=$(gbrain --version 2>&1 | awk '/^gbrain [0-9]/{print $2; exit}')
   # gbrain doesn't use GitHub releases — derive latest from package.json on master, fallback to tags
   GBRAIN_LATEST=$(curl -sS "https://raw.githubusercontent.com/garrytan/gbrain/master/package.json" 2>/dev/null | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null)
   if [ -z "$GBRAIN_LATEST" ]; then
@@ -1454,7 +1473,7 @@ except: pass
   echo ""
   echo "_¿Qué mido?_ Cuando upstream (gbrain / openclaw) lanza una feature nueva, este layer la surfaceea como **informativa, no urgente**. Lee los últimos 5 commits con palabras clave (\`feat:\`, \`v0.\`) y los cruza contra los módulos que ya tienes activos. Si la feature ya está cubierta por algo que tienes (ej: voice → no relevante porque no usas voz), se silencia. Si es nueva y aplicable, te dice **\"tienes módulo para X — pruébalo\"** con el comando exacto."
   echo ""
-  CURRENT_GBRAIN_VER=$(gbrain --version 2>/dev/null | awk '{print $2}')
+  CURRENT_GBRAIN_VER=$(gbrain --version 2>&1 | awk '/^gbrain [0-9]/{print $2; exit}')
   CURRENT_OPENCLAW_VER=$(openclaw --version 2>/dev/null | awk '{print $2}')
   echo "_Tu setup_: gbrain \`$CURRENT_GBRAIN_VER\` · openclaw \`$CURRENT_OPENCLAW_VER\`"
   echo ""
@@ -2141,7 +2160,7 @@ PY
 run_bugs() {
   echo "# 🐛 /gbrain bugs — Upstream bugs that affect you"
   IOC=$(openclaw --version 2>&1 | head -1 | awk '{print $2}')
-  IGB=$(gbrain --version 2>&1 | head -1 | awk '{print $2}')
+  IGB=$(gbrain --version 2>&1 | awk '/^gbrain [0-9]/{print $2; exit}')
   MODEL=$(read_model_field primary)
   echo ""
   echo "Your stack: openclaw=$IOC, gbrain=$IGB, model=$MODEL"
@@ -2546,6 +2565,61 @@ run_sync() {
       echo "| gbrain CLI | $gb_before | $gb_upstream commits behind upstream | ⚠️ rebase manual recomendado (ver /gbrain news) |"
     else
       echo "| gbrain CLI | $gb_before | latest | ✅ al día |"
+    fi
+  fi
+  echo ""
+
+  # gstack (herramienta de diseño: design-shotgun / design-review / el binario `design`).
+  # Más conservador que el paso de OpenClaw de arriba, a propósito:
+  #  - solo avanza si el árbol está LIMPIO y es fast-forward (nada de reset sobre trabajo
+  #    local ni sobre commits propios); si no, avisa y no toca.
+  #  - guarda el commit anterior: volver = git reset --hard <ese commit> && ./setup.
+  #  - `./setup` reconstruye binarios y reescribe hooks en ~/.claude/settings.json, así que
+  #    después se comprueba que el hook de captura de gbrain siga ahí y que `design`
+  #    arranque. Un setup que sale 0 no prueba nada de eso.
+  echo "## 5b. gstack (diseño)"
+  echo ""
+  echo "| Componente | Antes | Después | Acción |"
+  echo "|---|---|---|---|"
+  local GSD="$HOME/.claude/skills/gstack" gs_old gs_new gs_commit gs_dirty gs_rc gs_behind
+  if [ ! -d "$GSD/.git" ]; then
+    echo "| gstack | — | — | ⚪ no instalado |"
+  else
+    gs_old=$(tr -d ' \n' < "$GSD/VERSION" 2>/dev/null); gs_commit=$(git -C "$GSD" rev-parse HEAD)
+    timeout 90 git -C "$GSD" fetch --quiet origin 2>/dev/null
+    gs_behind=$(git -C "$GSD" rev-list --count HEAD..origin/main 2>/dev/null || echo "?")
+    gs_dirty=$(git -C "$GSD" status --porcelain 2>/dev/null | head -1)
+    if [ "$gs_behind" = "0" ]; then
+      echo "| gstack | $gs_old | $gs_old | ✅ al día |"
+    elif [ "$gs_behind" = "?" ]; then
+      echo "| gstack | $gs_old | ? | ⚪ no pude consultar el remoto |"
+    elif [ -n "$gs_dirty" ]; then
+      echo "| gstack | $gs_old | — | ⚠️ ${gs_behind} commits atrás pero hay cambios locales — NO toco (revisa \`git -C $GSD status\`) |"
+    elif ! git -C "$GSD" merge --ff-only origin/main >/dev/null 2>&1; then
+      echo "| gstack | $gs_old | — | ⚠️ ${gs_behind} commits atrás pero NO es fast-forward (hay commits locales) — NO toco |"
+    else
+      mkdir -p "$HOME/.gbrain/maintenance"; echo "$gs_commit" > "$HOME/.gbrain/maintenance/gstack-prev-commit"
+      ( cd "$GSD" && export TMPDIR=/var/tmp PATH="$HOME/.bun/bin:$PATH" && timeout 900 ./setup >/var/tmp/gstack-setup.log 2>&1 ); gs_rc=$?
+      gs_new=$(tr -d ' \n' < "$GSD/VERSION" 2>/dev/null)
+      if [ "$gs_rc" -ne 0 ]; then
+        echo "| gstack | $gs_old | $gs_new | 🔴 setup salió con código $gs_rc (ver /var/tmp/gstack-setup.log). Volver: \`git -C $GSD reset --hard ${gs_commit:0:7} && $GSD/setup\` |"
+        ALERTS+=("🔴 gstack se actualizó pero \`./setup\` falló (código $gs_rc).")
+      else
+        echo "| gstack | $gs_old | $gs_new | 🔼 actualizado (${gs_behind} commits) |"
+        synced=$((synced+1))
+        if grep -q "signal-detector" "$HOME/.claude/settings.json" 2>/dev/null; then
+          echo "| ↳ hook de captura gbrain | — | — | ✅ intacto en settings.json |"
+        else
+          echo "| ↳ hook de captura gbrain | — | — | 🔴 DESAPARECIÓ de settings.json — \`bash ~/skills/openclaw/signal-detector/install-hook.sh\` |"
+          ALERTS+=("🔴 tras actualizar gstack falta el hook signal-detector en settings.json.")
+        fi
+        if [ -x "$GSD/design/dist/design" ] && timeout 30 "$GSD/design/dist/design" 2>&1 | grep -q "AI-powered UI mockup"; then
+          echo "| ↳ binario design | — | — | ✅ arranca |"
+        else
+          echo "| ↳ binario design | — | — | 🔴 no arranca |"
+          ALERTS+=("🔴 tras actualizar gstack el binario design no arranca (design-shotgun/design-review dependen de él).")
+        fi
+      fi
     fi
   fi
   echo ""
