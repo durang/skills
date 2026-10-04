@@ -1695,21 +1695,30 @@ Run /gbrain en Telegram para detalle.")
   # aunque Cursor (vía tailnet) siga funcionando.
   # Sin WRAPPER_URL no hay nada que sondear — y NUNCA hardcodear el host aquí:
   # este repo es PÚBLICO y el endpoint es infraestructura privada del usuario.
-  for _c in cursor grok; do
-    [ -z "${WRAPPER_URL:-}" ] && { echo "| **${_c}** (MCP Bearer/OAuth) | — | — | define WRAPPER_URL en ~/.gbrain/gbrain-direct.env |"; continue; }
-    _n=$(gbrain auth list 2>/dev/null | grep -cE "(^|[[:space:]])${_c}([[:space:]]|$)" || true)
-    _cfg=$([ "$_c" = cursor ] && echo '~/.cursor/mcp.json' || echo 'grok.com/connectors → Custom')
-    if [ "${_n:-0}" -eq 0 ]; then
-      echo "| **${_c}** (MCP Bearer) | ❌ sin token | — | créalo: gbrain auth create \"${_c}\" |"
+  # Cursor entra con un token ESTÁTICO; Grok entra por OAuth (su formulario no tiene dónde
+  # pegar un Bearer). Esta fila contaba cualquier línea de `gbrain auth list` que dijera
+  # "grok", y esa lista CONSERVA los revocados: el 2026-10-04 marcó "token activo" para un
+  # token de Grok que acababa de revocarse. Ahora Cursor filtra REVOKED y muestra su último
+  # uso, y Grok se mide por su cliente OAuth registrado.
+  if [ -z "${WRAPPER_URL:-}" ]; then
+    echo "| **cursor / grok** | — | — | define WRAPPER_URL en ~/.gbrain/gbrain-direct.env |"
+  else
+    _hs=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 -X POST "${WRAPPER_URL}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' 2>/dev/null)
+    if [ "$_hs" = "401" ]; then _ep="endpoint vivo"; else _ep="⚠️ endpoint HTTP ${_hs} (revisa wrapper + tailscale funnel status)"; fi
+    _cl=$(gbrain auth list 2>/dev/null | grep -E "(^|[[:space:]])cursor([[:space:]]|$)" | grep -v REVOKED | head -1)
+    if [ -z "$_cl" ]; then
+      echo "| **cursor** (token Bearer) | ❌ sin token activo | — | créalo: gbrain auth create \"cursor\" |"
     else
-      _hs=$(curl -s -o /dev/null -w "%{http_code}" --max-time 12 -X POST "${WRAPPER_URL}" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' 2>/dev/null)
-      if [ "$_hs" = "401" ]; then
-        echo "| **${_c}** (MCP Bearer) | ✅ token activo | endpoint vivo | config en ${_cfg} |"
-      else
-        echo "| **${_c}** (MCP Bearer) | ⚠️ token activo | endpoint HTTP ${_hs} | revisa wrapper + tailscale funnel status |"
-      fi
+      _lu=$(echo "$_cl" | awk '{print $(NF-1)}' | cut -c1-10)
+      echo "| **cursor** (token Bearer) | ✅ token activo (último uso ${_lu}) | ${_ep} | config en ~/.cursor/mcp.json |"
     fi
-  done
+    _gk=$(PGPASSWORD=$PASSWORD psql "$DATABASE_URL" -tAc "SELECT client_name FROM oauth_clients WHERE client_name ILIKE '%grok%' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1" 2>/dev/null | head -1)
+    if [ -z "$_gk" ]; then
+      echo "| **grok** (OAuth) | ❌ sin cliente OAuth registrado | — | registra uno en /mcp/oauth/register (ver CONNECT.md) |"
+    else
+      echo "| **grok** (OAuth) | ✅ cliente \`${_gk}\` registrado | ${_ep} | config en grok.com/connectors → Custom |"
+    fi
+  fi
   echo ""
   if [ "$CI_APPLIED" != "$CI_VERSION" ]; then
     echo "🔴 **Acción urgente:** las custom instructions de claude.ai están desactualizadas (v$CI_APPLIED vs v$CI_VERSION). Ejecuta:"
