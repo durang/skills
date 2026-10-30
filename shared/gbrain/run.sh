@@ -747,7 +747,7 @@ except Exception as e:
   _T=$(PGPASSWORD=$PASSWORD psql "$DATABASE_URL" -tAF'|' -c "SELECT provenance_tier(frontmatter), COUNT(*) FROM pages WHERE deleted_at IS NULL GROUP BY 1 ORDER BY 2 DESC" 2>&1)
   if echo "$_T" | grep -qi "does not exist\|error"; then
     echo "| Estado | Qué hacer |"; echo "|---|---|"
-    echo "| ⚪ función \`provenance_tier\` no aplicada | pega \`~/.gbrain/r2-tier-and-validation.sql\` en el SQL Editor de Supabase |"
+    echo "| ⚪ función \`provenance_tier\` no aplicada | aplica \`~/.gbrain/r2-tier-and-validation.sql\` con \`psql \"\$DATABASE_URL\" -f\` (Postgres local gbrain-pg 127.0.0.1:5433) |"
   else
     echo "| Nivel | Páginas | Uso |"; echo "|---|---|---|"
     echo "$_T" | while IFS='|' read -r _lvl _n; do
@@ -3164,7 +3164,7 @@ EOF
     " 2>/dev/null | awk -F'|' 'NF{print "- ⚠️  `" $1 "` →", $2}'
     echo ""
     echo "## Suggested actions"
-    echo "- For meta-content pages → \`gbrain delete-page <slug>\` (after confirming with /gbrain principles entry)"
+    echo "- For meta-content pages → \`gbrain delete <slug>\` (after confirming with /gbrain principles entry)"
     echo "- For namespace duplicates → soft-rename via \`add_link type:\"superseded_by\"\` from old to canonical, then content stub"
     echo "- For legacy \`brain/\` slugs → consolidate into canonical namespace"
     echo "- For contradictions → read the block, resolve manually, edit the page"

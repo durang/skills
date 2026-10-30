@@ -164,7 +164,7 @@ For **automated nightly compounding**, add to crontab:
 
 - `gbrain` CLI in `PATH` (tested with v0.22.5 → v0.22.8)
 - `openclaw` CLI in `PATH` (tested with v2026.4.23)
-- `~/.gbrain/config.json` with `database_url` (Supabase Postgres + pgvector recommended)
+- `~/.gbrain/config.json` with `database_url` (local Postgres 17 + pgvector, e.g. docker `gbrain-pg` on 127.0.0.1:5433; Supabase also works)
 - `~/.openclaw/openclaw.json` with at least one MCP server, agent definition, and Telegram channel (optional, only used for drift alerts)
 - For compounding engine: `DEEPSEEK_API_KEY` in `~/.openclaw/.env` (or `claude` CLI installed for fallback)
 - `psql`, `python3`, `curl` (standard on Amazon Linux 2023 / Ubuntu)
