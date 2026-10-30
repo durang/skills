@@ -4,7 +4,7 @@ Reproducible, interactive setup that:
 
 - detects your host (Mac, Linux, EC2)
 - installs Bun + the canonical `gbrain` from `github:garrytan/gbrain` (not the squatted npm package)
-- reuses an existing brain (Postgres/Supabase) or creates a local one
+- reuses an existing brain (local Postgres, or Supabase) or creates a local one
 - asks per-client whether to wire MCP (Claude Code, Cursor, Windsurf), and explicitly skips the clients that need an HTTP wrapper not yet available (Claude Desktop, claude.ai web, mobile, Perplexity)
 - runs a bidirectional ping to prove the brain is shared
 
@@ -68,7 +68,7 @@ rm -rf ~/.gbrain
 # Then re-run bootstrap.sh
 ```
 
-To wipe the shared Postgres brain itself, do that on the database side (Supabase dashboard or `psql`), not on a client.
+To wipe the shared Postgres brain itself, do that on the database side (`psql` against the local gbrain-pg, or the Supabase dashboard if you still use it), not on a client.
 
 ## Common pitfalls
 

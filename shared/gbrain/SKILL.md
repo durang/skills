@@ -59,7 +59,10 @@ bash ~/.openclaw/skills/gbrain/run.sh compound revert <id> # queue revert
 ## Output handling
 
 The script outputs Markdown directly. Stream that output as-is — no reformat unless asked. If the script prints errors:
-- `gbrain: command not found` → `bun install -g gbrain@github:garrytan/gbrain --force`
+- `gbrain: command not found` → `export PATH=$HOME/.bun/bin:$PATH` first; only if still missing → `bun install -g gbrain@github:garrytan/gbrain --force`
+- `gbrain doctor` → `[FAIL] runtime_build_skew` → the running `gbrain serve`/autopilot is older than the installed binary. Fix is `gbrain upgrade --restart-only`, but it restarts serve processes: **ask Sergio first** (never restart hermes-gateway / openclaw-gateway as a side effect).
+- Database: since 2026-10-24 the brain lives in a **local Postgres** (docker `gbrain-pg`, PG 17 + pgvector, `127.0.0.1:5433`, db `gbrain`) on the Contabo VPS. References to Supabase in older docs/layers are historical; the old Supabase project is kept untouched as an archive.
+- Host: the stack moved from AWS EC2 to the Contabo VPS (`contabo-hermes`). L19 "AWS Infra" checks are legacy: report them as ⚪ n/a instead of 🔴, and **never start jarvis (AWS)** to make them pass.
 - `openclaw gateway status` returns "not running" → `openclaw gateway start`
 - `psql` connection fails → check `~/.gbrain/config.json` has valid `database_url`
 
@@ -110,3 +113,83 @@ The script outputs Markdown directly. Stream that output as-is — no reformat u
 ## Note on duplication (Claude Code vs OpenClaw)
 
 This file lives at `~/.openclaw/skills/gbrain/SKILL.md` and is mirrored to `~/.claude/skills/gbrain/` via the monorepo `durang/skills`. Both invocation paths (Claude Code `/gbrain` AND OpenClaw Telegram `/gbrain`) call the same `run.sh`. **Single source of truth: `run.sh`.**
+
+## Grok Bot integration (daily bot reports → GBrain, $0)
+
+Each Grok Bot (pilot: the main Grok Bot only) writes **one Markdown report per day** that becomes a permanent, searchable history of what the bot did.
+
+- **Path:** `~/brain/reports/bots/<bot>/YYYY-MM-DD.md` (one folder per bot, slug in kebab-case, e.g. `grok-bot`).
+- **Entry:** the bot POSTs the report to the small receiver on the VPS (one token per bot, stored only in that bot's private store / server env, never in chat or in this repo). The receiver writes the file; the normal 15-min sync imports it.
+- **Cost: $0.** Frontmatter carries `embed_skip: true` so no embedding call is made; retrieval relies on the keyword side of `gbrain search` (tsvector), which still finds these pages. Verify with `gbrain search "<bot> <date>"` after the sync.
+- **Template (fixed sections, keep headings exact so queries work):**
+
+```markdown
+---
+type: bot-report
+bot: grok-bot
+date: 2026-10-29
+embed_skip: true
+tags: [bot-report, grok-bot]
+---
+# grok-bot — 2026-10-29
+## Acciones hechas
+## Decisiones de Sergio
+## Cambios en reglas o sistemas
+## Tareas: avance, pendientes y bloqueos
+## Gastos
+## Errores
+## Métricas
+```
+
+Empty section → write `- ninguno`. Facts only, with times in America/Hermosillo; no keys, passwords or tokens.
+
+### Use cases / queries
+| Pregunta | Cómo |
+|---|---|
+| ¿Qué hizo este bot hoy / ayer? | `gbrain search "grok-bot 2026-10-29"` or open `reports/bots/grok-bot/2026-10-29.md` |
+| ¿Cómo va mi Grok Bot? | read the last 7 files of `reports/bots/grok-bot/`, summarize "Tareas" + "Errores" |
+| ¿Cuándo decidió Sergio X? | `gbrain search "Decisiones de Sergio <tema>"` |
+| ¿Qué cambió en las reglas este mes? | `gbrain search "Cambios en reglas" ` filtered by `type: bot-report` |
+| ¿Cuánto gastaron los bots? | grep "## Gastos" across `reports/bots/*/` for the month |
+
+Rules: only Sergio approves new bots joining (pilot = one bot); never delete reports (they are the permanent history).
+
+## Grok Bot integration (daily bot reports → GBrain, $0)
+
+Each Grok Bot (pilot: the main Grok Bot only) writes **one Markdown report per day** that becomes a permanent, searchable history of what the bot did.
+
+- **Path:** `~/brain/reports/bots/<bot>/YYYY-MM-DD.md` (one folder per bot, slug in kebab-case, e.g. `grok-bot`).
+- **Entry:** the bot POSTs the report to the small receiver on the VPS (one token per bot, stored only in that bot's private store / server env, never in chat or in this repo). The receiver writes the file; the normal 15-min sync imports it.
+- **Cost: $0.** Frontmatter carries `embed_skip: true` so no embedding call is made; retrieval relies on the keyword side of `gbrain search` (tsvector), which still finds these pages. Verify with `gbrain search "<bot> <date>"` after the sync.
+- **Template (fixed sections, keep headings exact so queries work):**
+
+```markdown
+---
+type: bot-report
+bot: grok-bot
+date: 2026-10-29
+embed_skip: true
+tags: [bot-report, grok-bot]
+---
+# grok-bot — 2026-10-29
+## Acciones hechas
+## Decisiones de Sergio
+## Cambios en reglas o sistemas
+## Tareas: avance, pendientes y bloqueos
+## Gastos
+## Errores
+## Métricas
+```
+
+Empty section → write `- ninguno`. Facts only, with times in America/Hermosillo; no keys, passwords or tokens.
+
+### Use cases / queries
+| Pregunta | Cómo |
+|---|---|
+| ¿Qué hizo este bot hoy / ayer? | `gbrain search "grok-bot 2026-10-29"` or open `reports/bots/grok-bot/2026-10-29.md` |
+| ¿Cómo va mi Grok Bot? | read the last 7 files of `reports/bots/grok-bot/`, summarize "Tareas" + "Errores" |
+| ¿Cuándo decidió Sergio X? | `gbrain search "Decisiones de Sergio <tema>"` |
+| ¿Qué cambió en las reglas este mes? | `gbrain search "Cambios en reglas" ` filtered by `type: bot-report` |
+| ¿Cuánto gastaron los bots? | grep "## Gastos" across `reports/bots/*/` for the month |
+
+Rules: only Sergio approves new bots joining (pilot = one bot); never delete reports (they are the permanent history).
